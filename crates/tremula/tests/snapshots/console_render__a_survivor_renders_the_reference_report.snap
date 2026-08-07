@@ -1,0 +1,13 @@
+---
+source: crates/tremula/tests/console_render.rs
+expression: "render(&report, Some(&baseline))"
+---
+tremula run · 1 mutants · project: .
+baseline: 14 passed in 1.2s ✓ (collected=14)
+
+  id        file                       span      verdict    detail
+  3b1f8c2d  src/scheduling/overlap.py  412–431   SURVIVED   14 passed
+
+score: 0/1 killed (0 timeout) · 1 survived · 0 excluded
+note: SURVIVED = not killed by the existing suite (execution/coverage unverified)
+exit 1 (survived present)

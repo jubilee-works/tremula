@@ -1,0 +1,9 @@
+---
+source: crates/tremula/tests/console_render.rs
+expression: "render(&report, None)"
+---
+tremula run · 0 mutants · project: sample_project
+
+score: 0/0 killed (0 timeout) · 0 survived · 0 excluded
+note: SURVIVED = not killed by the existing suite (execution/coverage unverified)
+exit 0 (nothing to test)

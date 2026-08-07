@@ -7,6 +7,16 @@ description = "Plant realistic bugs, see if your tests tremble."
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+tremula-contracts = { path = "../tremula-contracts" }
+thiserror = "2"
+sha2 = "0.10"
+serde_json = "1"
+
+[dev-dependencies]
+assert_cmd = "2"
+insta = "1"
+serde = "1"
+tempfile = "3"
 
 [lints]
 workspace = true

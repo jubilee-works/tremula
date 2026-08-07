@@ -1,0 +1,199 @@
+//! `tremula validate` from the outside: the exit codes it promises and the
+//! guidance its messages carry.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Output,
+};
+
+use assert_cmd::Command;
+use sha2::{Digest, Sha256};
+use tempfile::TempDir;
+use tremula::validation::canonical_mutant_id;
+use tremula_contracts::manifest::Span;
+
+const TARGET: &str = "src/overlap.py";
+const SOURCE: &str = "def overlaps(start, other):\n    return start < other.end\n";
+const ORIGINAL: &str = "start < other.end";
+const REPLACEMENT: &str = "start <= other.end";
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+/// A project whose one source file the manifests below target.
+fn project() -> TempDir {
+    let root = TempDir::new().unwrap();
+    let path = root.path().join(TARGET);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, SOURCE).unwrap();
+    root
+}
+
+fn write_manifest(root: &TempDir, contents: &str) -> PathBuf {
+    let path = root.path().join("manifest.json");
+    fs::write(&path, contents).unwrap();
+    path
+}
+
+fn manifest_json(base_file_sha256: &str) -> String {
+    manifest_json_with(base_file_sha256, REPLACEMENT)
+}
+
+/// A manifest for the project's one file. The hash and the replacement are
+/// parameters so that a test can hand over a hash the file no longer has, or a
+/// replacement large enough to be worth a warning.
+fn manifest_json_with(base_file_sha256: &str, replacement: &str) -> String {
+    let start = u64::try_from(SOURCE.find(ORIGINAL).unwrap()).unwrap();
+    let span = Span {
+        start_byte: start,
+        end_byte: start + u64::try_from(ORIGINAL.len()).unwrap(),
+    };
+    serde_json::json!({
+        "schema_version": "0.1",
+        "language": "python",
+        "base": {},
+        "mutants": [{
+            "id": canonical_mutant_id(TARGET, &span, base_file_sha256, replacement),
+            "file": TARGET,
+            "base_file_sha256": base_file_sha256,
+            "span": { "start_byte": span.start_byte, "end_byte": span.end_byte },
+            "original": ORIGINAL,
+            "replacement": replacement,
+        }],
+    })
+    .to_string()
+}
+
+fn run_validate(root: &Path, manifest: &Path, extra: &[&str]) -> Output {
+    let mut command = Command::cargo_bin("tremula").unwrap();
+    command
+        .arg("validate")
+        .arg("--manifest")
+        .arg(manifest)
+        .arg("--project")
+        .arg(root)
+        .args(extra);
+    command.output().unwrap()
+}
+
+fn stderr(output: &Output) -> String {
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
+
+#[test]
+fn a_manifest_that_matches_the_project_is_accepted() {
+    let root = project();
+    let manifest = write_manifest(&root, &manifest_json(&sha256_hex(SOURCE.as_bytes())));
+
+    let output = run_validate(root.path(), &manifest, &[]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+}
+
+#[test]
+fn a_manifest_with_nothing_to_test_is_accepted() {
+    let root = project();
+    let manifest = write_manifest(
+        &root,
+        r#"{"schema_version": "0.1", "language": "python", "base": {}, "mutants": []}"#,
+    );
+
+    let output = run_validate(root.path(), &manifest, &[]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+}
+
+#[test]
+fn a_manifest_written_against_older_sources_is_rejected_with_the_next_step() {
+    let root = project();
+    let manifest = write_manifest(&root, &manifest_json(&sha256_hex(b"an older revision")));
+
+    let output = run_validate(root.path(), &manifest, &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let complaint = stderr(&output);
+    assert!(complaint.contains("regenerate the manifest"), "{complaint}");
+}
+
+#[test]
+fn a_manifest_that_is_not_valid_json_is_rejected_with_the_reason() {
+    let root = project();
+    let manifest = write_manifest(
+        &root,
+        r#"{"schema_version": "0.1", "language": "python", "base": {}, "mutants": ["#,
+    );
+
+    let output = run_validate(root.path(), &manifest, &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let complaint = stderr(&output);
+    assert!(complaint.contains("is not a valid manifest"), "{complaint}");
+}
+
+#[test]
+fn a_manifest_path_that_cannot_be_read_is_rejected_with_the_reason() {
+    let root = project();
+    let nowhere = root.path().join("no-such-directory").join("manifest.json");
+
+    let output = run_validate(root.path(), &nowhere, &[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let complaint = stderr(&output);
+    assert!(complaint.contains("cannot read manifest"), "{complaint}");
+    assert!(complaint.contains("check the path"), "{complaint}");
+}
+
+/// A warning is advice, not a defect: it is reported and the manifest is still
+/// accepted.
+#[test]
+fn an_oversized_replacement_is_reported_without_failing() {
+    let root = project();
+    let bulky = "x".repeat(10 * 1024 + 1);
+    let manifest = write_manifest(
+        &root,
+        &manifest_json_with(&sha256_hex(SOURCE.as_bytes()), &bulky),
+    );
+
+    let output = run_validate(root.path(), &manifest, &[]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let advice = stderr(&output);
+    assert!(advice.contains("warning:"), "{advice}");
+    assert!(advice.contains("10241 bytes"), "{advice}");
+}
+
+#[test]
+fn the_subcommands_that_do_not_exist_yet_say_so() {
+    for name in ["run", "restore"] {
+        let output = Command::cargo_bin("tremula")
+            .unwrap()
+            .arg(name)
+            .output()
+            .unwrap();
+
+        assert_eq!(output.status.code(), Some(2), "{name}");
+        let complaint = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(
+            complaint.contains("is not implemented yet"),
+            "{name}: {complaint}"
+        );
+    }
+}
+
+#[test]
+fn deep_validation_says_it_needs_the_language_pack() {
+    let root = project();
+    let manifest = write_manifest(&root, &manifest_json(&sha256_hex(SOURCE.as_bytes())));
+
+    let output = run_validate(root.path(), &manifest, &["--deep"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let complaint = stderr(&output);
+    assert!(
+        complaint.contains("requires the Python pack"),
+        "{complaint}"
+    );
+}

@@ -44,6 +44,10 @@ pub struct Mutant {
     /// `replacement`. Both offsets are rendered as unpadded, unsigned decimal
     /// ASCII digits, so byte 412 contributes the three bytes `412`.
     ///
+    /// Because the parts are joined with NUL bytes, no part may contain one: a
+    /// producer that would emit a NUL inside `file` or `replacement` must
+    /// reject the mutant rather than derive an ambiguous identifier.
+    ///
     /// `provenance` is excluded, so provenance can change without changing
     /// identity. Any producer that follows this derivation arrives at the same
     /// identifier for the same mutation.

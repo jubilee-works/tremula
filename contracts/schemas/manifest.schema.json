@@ -74,7 +74,7 @@
           "type": "string"
         },
         "id": {
-          "description": "Content-derived identifier, written as lowercase hexadecimal.\n\nIt is the SHA-256 of six UTF-8 encoded parts joined by single NUL\nbytes, in this order: the literal tag `tremula/mutant/v1`, `file`,\n`span.start_byte`, `span.end_byte`, `base_file_sha256`, and\n`replacement`. Both offsets are rendered as unpadded, unsigned decimal\nASCII digits, so byte 412 contributes the three bytes `412`.\n\n`provenance` is excluded, so provenance can change without changing\nidentity. Any producer that follows this derivation arrives at the same\nidentifier for the same mutation.",
+          "description": "Content-derived identifier, written as lowercase hexadecimal.\n\nIt is the SHA-256 of six UTF-8 encoded parts joined by single NUL\nbytes, in this order: the literal tag `tremula/mutant/v1`, `file`,\n`span.start_byte`, `span.end_byte`, `base_file_sha256`, and\n`replacement`. Both offsets are rendered as unpadded, unsigned decimal\nASCII digits, so byte 412 contributes the three bytes `412`.\n\nBecause the parts are joined with NUL bytes, no part may contain one: a\nproducer that would emit a NUL inside `file` or `replacement` must\nreject the mutant rather than derive an ambiguous identifier.\n\n`provenance` is excluded, so provenance can change without changing\nidentity. Any producer that follows this derivation arrives at the same\nidentifier for the same mutation.",
           "type": "string"
         },
         "original": {

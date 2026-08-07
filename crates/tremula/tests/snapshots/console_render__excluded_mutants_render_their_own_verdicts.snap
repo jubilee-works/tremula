@@ -1,0 +1,15 @@
+---
+source: crates/tremula/tests/console_render.rs
+expression: "render(&report, Some(&baseline))"
+---
+tremula run · 3 mutants · project: sample_project
+baseline: 14 passed in 1.2s ✓ (collected=14)
+
+  id        file             span      verdict        detail
+  3b1f8c2d  src/calc.py      120–158   SURVIVED       14 passed
+  3b1f8c2e  src/overlap.py   220–258   RUNTIME_ERROR  backend error
+  3b1f8c2f  src/pkg/mod.py   320–358   SKIPPED        skipped
+
+score: 0/3 killed (0 timeout) · 1 survived · 2 excluded
+note: SURVIVED = not killed by the existing suite (execution/coverage unverified)
+exit 1 (survived present)
