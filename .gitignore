@@ -1,0 +1,23 @@
+# Working docs (Korean) — public history excluded
+docs/superpowers/
+
+# Local tooling config — never committed
+.claude/
+
+# Rust
+target/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+
+# tremula run artifacts (fixtures may produce these during tests)
+.tremula/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
