@@ -1,0 +1,279 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Results",
+  "description": "Everything one pack execution observed.",
+  "type": "object",
+  "properties": {
+    "entries": {
+      "description": "One entry per manifest mutant, including mutants that never ran.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ResultEntry"
+      }
+    },
+    "pack": {
+      "description": "Which pack produced them.",
+      "$ref": "#/$defs/PackInfo"
+    },
+    "run_id": {
+      "description": "Identifier of the run these results belong to.",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Contract version of this document.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "pack",
+    "entries"
+  ],
+  "$defs": {
+    "ExecutionStatus": {
+      "description": "Neutral outcome of one mutation attempt.",
+      "oneOf": [
+        {
+          "description": "The mutation was applied and the suite ran to completion.",
+          "type": "string",
+          "const": "completed"
+        },
+        {
+          "description": "The suite exceeded its time limit.",
+          "type": "string",
+          "const": "timeout"
+        },
+        {
+          "description": "Deliberately not executed, for example filtered out.",
+          "type": "string",
+          "const": "skipped"
+        },
+        {
+          "description": "The mutation could not be applied to the source.",
+          "type": "string",
+          "const": "not_applied"
+        },
+        {
+          "description": "Scheduled but never executed, for example in an interrupted run.",
+          "type": "string",
+          "const": "not_run"
+        },
+        {
+          "description": "The execution backend itself failed.",
+          "type": "string",
+          "const": "backend_error"
+        }
+      ]
+    },
+    "ExitClass": {
+      "description": "Neutral runner exit classification. The Python pack maps pytest exit codes\nonto these: 0 to `ok`, 1 to `test_failures`, 5 to `no_tests`, 2 to\n`interrupted`, 3 and 4 to `infra_error`.",
+      "oneOf": [
+        {
+          "description": "The suite ran and every test passed.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "The suite ran and reported failures or errors.",
+          "type": "string",
+          "const": "test_failures"
+        },
+        {
+          "description": "The suite ran but collected no tests.",
+          "type": "string",
+          "const": "no_tests"
+        },
+        {
+          "description": "The run was interrupted before finishing.",
+          "type": "string",
+          "const": "interrupted"
+        },
+        {
+          "description": "The runner itself failed, through bad usage or an internal error.",
+          "type": "string",
+          "const": "infra_error"
+        }
+      ]
+    },
+    "Location": {
+      "description": "A position in the target file.",
+      "type": "object",
+      "properties": {
+        "column": {
+          "description": "Character offset within the line, 0-indexed, matching the parser the\nPython pack uses.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "line": {
+          "description": "Line number, 1-indexed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "line",
+        "column"
+      ]
+    },
+    "PackInfo": {
+      "description": "Provenance of the pack that produced a document.",
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "description": "Contract version the pack implements, the same value documents carry as\n`schema_version`.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Distribution name, for example `tremula-python`.",
+          "type": "string"
+        },
+        "version": {
+          "description": "Pack version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "contract_version"
+      ]
+    },
+    "ResultEntry": {
+      "description": "What happened to one mutant.",
+      "type": "object",
+      "properties": {
+        "backend_raw": {
+          "description": "Backend-specific values kept for cross-checking only, never for\njudgement.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "diff": {
+          "description": "Unified diff of the applied mutation, with `a/` and `b/` prefixes and\nproject-relative paths, normalized by the pack.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "execution_status": {
+          "description": "Neutral outcome of the attempt.",
+          "$ref": "#/$defs/ExecutionStatus"
+        },
+        "finished_at": {
+          "description": "When the attempt finished, RFC 3339.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "location": {
+          "description": "Where the mutant landed, for humans and code review anchors.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Location"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mutant_id": {
+          "description": "The manifest mutant this entry reports on.",
+          "type": "string"
+        },
+        "runner": {
+          "description": "Runner signals. Absent when no suite ran.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunnerResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "truncated": {
+          "description": "Whether captured output was truncated.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "mutant_id",
+        "execution_status"
+      ]
+    },
+    "RunnerResult": {
+      "description": "What one test-suite execution reported, in language-neutral terms.",
+      "type": "object",
+      "properties": {
+        "collect_error": {
+          "description": "Whether collection itself failed.",
+          "type": "boolean"
+        },
+        "collected": {
+          "description": "Tests collected before execution.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "collected_ids_hash": {
+          "description": "SHA-256 of the sorted collected test identifiers. Detects a changed test\nset even when `collected` is unchanged.",
+          "type": "string"
+        },
+        "duration_ms": {
+          "description": "Wall-clock duration of the run.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "errors": {
+          "description": "Tests that errored during setup or teardown.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "exit_class": {
+          "description": "Neutral classification of how the runner exited.",
+          "$ref": "#/$defs/ExitClass"
+        },
+        "failed": {
+          "description": "Tests that failed an assertion or raised inside the test body.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "passed": {
+          "description": "Tests that passed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "skipped": {
+          "description": "Tests that were skipped.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "timed_out": {
+          "description": "Whether the runner stopped the suite on its own time limit.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "exit_class",
+        "passed",
+        "failed",
+        "errors",
+        "skipped",
+        "collected",
+        "collected_ids_hash",
+        "collect_error",
+        "timed_out",
+        "duration_ms"
+      ]
+    }
+  }
+}

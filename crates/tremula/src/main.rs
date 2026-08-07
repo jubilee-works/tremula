@@ -1,3 +1,5 @@
+//! Command-line entry point for tremula.
+
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};

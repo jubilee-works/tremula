@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Report",
+  "description": "The judged outcome of one run.",
+  "type": "object",
+  "properties": {
+    "caveats": {
+      "description": "Statements that must accompany any presentation of these results, such\nas that survived mutants are not proven non-equivalent.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "exit_code": {
+      "description": "Process exit code the run reported.",
+      "type": "integer",
+      "format": "uint8",
+      "maximum": 255,
+      "minimum": 0
+    },
+    "run": {
+      "description": "Run provenance.",
+      "$ref": "#/$defs/RunMeta"
+    },
+    "schema_version": {
+      "description": "Contract version of this document.",
+      "type": "string"
+    },
+    "score": {
+      "description": "Aggregate counts, consistent with `verdicts`.",
+      "$ref": "#/$defs/Score"
+    },
+    "verdicts": {
+      "description": "One verdict per manifest mutant, in manifest order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/MutantVerdict"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "run",
+    "verdicts",
+    "score",
+    "exit_code",
+    "caveats"
+  ],
+  "$defs": {
+    "Location": {
+      "description": "A position in the target file.",
+      "type": "object",
+      "properties": {
+        "column": {
+          "description": "Character offset within the line, 0-indexed, matching the parser the\nPython pack uses.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "line": {
+          "description": "Line number, 1-indexed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "line",
+        "column"
+      ]
+    },
+    "MutantVerdict": {
+      "description": "The verdict for one mutant.",
+      "type": "object",
+      "properties": {
+        "detail": {
+          "description": "One-line summary for display only, such as `3 failed`. Not machine\nreadable: counts live in the results document under the same `run_id`.",
+          "type": "string"
+        },
+        "file": {
+          "description": "Target file, POSIX-style and relative to the project root.",
+          "type": "string"
+        },
+        "label": {
+          "description": "Refinement of the verdict, for example `killed_by_error`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "location": {
+          "description": "Position of the mutation, when the pack reported one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Location"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mutant_id": {
+          "description": "The manifest mutant this verdict is about.",
+          "type": "string"
+        },
+        "span": {
+          "description": "Byte range that was mutated.",
+          "$ref": "#/$defs/Span"
+        },
+        "verdict": {
+          "description": "What the suite did to this mutant.",
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "mutant_id",
+        "file",
+        "span",
+        "verdict",
+        "detail"
+      ]
+    },
+    "RunMeta": {
+      "description": "Who produced this report, from what, and when.",
+      "type": "object",
+      "properties": {
+        "decision_rules_version": {
+          "description": "Version of the decision rules used, so verdicts stay attributable.",
+          "type": "string"
+        },
+        "dirty": {
+          "description": "Whether the working tree had uncommitted changes at run time.",
+          "type": "boolean"
+        },
+        "finished_at": {
+          "description": "When the run finished, RFC 3339.",
+          "type": "string"
+        },
+        "observed_revision": {
+          "description": "Source revision observed at run time, or absent when unavailable.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "project": {
+          "description": "Project root, as given on the command line.",
+          "type": "string"
+        },
+        "run_id": {
+          "description": "Identifier shared with the run directory and the results document.",
+          "type": "string"
+        },
+        "started_at": {
+          "description": "When the run started, RFC 3339.",
+          "type": "string"
+        },
+        "tremula_version": {
+          "description": "Version of the tremula core that judged this run.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "tremula_version",
+        "decision_rules_version",
+        "project",
+        "dirty",
+        "started_at",
+        "finished_at"
+      ]
+    },
+    "Score": {
+      "description": "Aggregate counts over one run. Every field is a plain count of `verdicts`,\nbroken out per category because the exit code depends on which kind of\nexclusion occurred.",
+      "type": "object",
+      "properties": {
+        "killed": {
+          "description": "Mutants the suite detected, including those that timed out.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "not_applied": {
+          "description": "Mutations that were never applied.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "not_run": {
+          "description": "Mutants scheduled but never executed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "runtime_error": {
+          "description": "Attempts that could not produce a judgement.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "skipped": {
+          "description": "Mutants deliberately not executed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "survived": {
+          "description": "Mutants the suite ran but did not detect.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "timeout": {
+          "description": "Subset of `killed` that timed out rather than failing a test.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total": {
+          "description": "Mutants in the manifest.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "total",
+        "killed",
+        "timeout",
+        "survived",
+        "runtime_error",
+        "not_applied",
+        "not_run",
+        "skipped"
+      ]
+    },
+    "Span": {
+      "description": "A half-open byte range over a file's raw bytes: `[start_byte, end_byte)`.\nThat `start_byte` is below `end_byte` is a validation rule, not a schema\nconstraint.",
+      "type": "object",
+      "properties": {
+        "end_byte": {
+          "description": "Exclusive end offset.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "start_byte": {
+          "description": "Inclusive start offset, 0-indexed.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "start_byte",
+        "end_byte"
+      ]
+    },
+    "Verdict": {
+      "description": "What the existing test suite did to a mutant.",
+      "oneOf": [
+        {
+          "description": "The suite detected the mutant.",
+          "type": "string",
+          "const": "killed"
+        },
+        {
+          "description": "The suite ran and did not detect the mutant.",
+          "type": "string",
+          "const": "survived"
+        },
+        {
+          "description": "The suite exceeded its time limit under this mutant, counted as\ndetected.",
+          "type": "string",
+          "const": "timeout"
+        },
+        {
+          "description": "The attempt could not produce a judgement.",
+          "type": "string",
+          "const": "runtime_error"
+        },
+        {
+          "description": "The mutation was never applied, which indicates an adapter defect.",
+          "type": "string",
+          "const": "not_applied"
+        },
+        {
+          "description": "The mutant was scheduled but never executed.",
+          "type": "string",
+          "const": "not_run"
+        },
+        {
+          "description": "The mutant was deliberately not executed.",
+          "type": "string",
+          "const": "skipped"
+        }
+      ]
+    }
+  }
+}

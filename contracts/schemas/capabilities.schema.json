@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Capabilities",
+  "description": "A pack's self-description, printed by its `--capabilities` subcommand.",
+  "type": "object",
+  "properties": {
+    "contract_version": {
+      "description": "Contract version the pack implements, the same value documents carry as\n`schema_version`.",
+      "type": "string"
+    },
+    "name": {
+      "description": "Distribution name, for example `tremula-python`.",
+      "type": "string"
+    },
+    "subcommands": {
+      "description": "Subcommands the pack accepts.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "validate_checks": {
+      "description": "Named language-level checks the pack's `validate` performs, so a newer\ncore can tell whether the checks it wants are available.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "version": {
+      "description": "Pack version.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "contract_version",
+    "subcommands",
+    "validate_checks"
+  ]
+}

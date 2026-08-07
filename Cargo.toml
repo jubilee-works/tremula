@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/tremula"]
+members = ["crates/tremula", "crates/tremula-contracts"]
 resolver = "2"
 
 [workspace.package]
@@ -9,6 +9,7 @@ license = "MIT"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
+missing_docs = "deny"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

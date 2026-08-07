@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PackError",
+  "description": "A pack's failure report. The single `error` key keeps this document\ndistinguishable from any other JSON a pack may print.",
+  "type": "object",
+  "properties": {
+    "error": {
+      "description": "What went wrong.",
+      "$ref": "#/$defs/PackErrorDetail"
+    }
+  },
+  "required": [
+    "error"
+  ],
+  "$defs": {
+    "PackErrorDetail": {
+      "description": "Why a pack stopped.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "description": "Stable machine-readable identifier for this kind of failure, such as\n`baseline_failed`. Codes are `lower_snake_case` and outlive any wording\nchange to `message`.",
+          "type": "string"
+        },
+        "message": {
+          "description": "Human-readable explanation of the failure. For display only: consumers\nbranch on `stage` and `code`, never on this text.",
+          "type": "string"
+        },
+        "stage": {
+          "description": "The step of the pack's work that failed.",
+          "$ref": "#/$defs/Stage"
+        }
+      },
+      "required": [
+        "stage",
+        "code",
+        "message"
+      ]
+    },
+    "Stage": {
+      "description": "The steps of a pack run, in the order a pack performs them. A `stage` tells\nthe core how far the pack got, which distinguishes a project problem such as\na failing baseline from an adapter problem such as a failed plan.",
+      "oneOf": [
+        {
+          "description": "Checking the environment before any work starts.",
+          "type": "string",
+          "const": "preflight"
+        },
+        {
+          "description": "Language-level validation of the manifest.",
+          "type": "string",
+          "const": "validate"
+        },
+        {
+          "description": "The unmutated reference run.",
+          "type": "string",
+          "const": "baseline"
+        },
+        {
+          "description": "Turning the manifest into work items for the execution backend.",
+          "type": "string",
+          "const": "plan"
+        },
+        {
+          "description": "Applying mutants and running the suite.",
+          "type": "string",
+          "const": "execute"
+        },
+        {
+          "description": "Reading results back out of the backend's state.",
+          "type": "string",
+          "const": "collect"
+        }
+      ]
+    }
+  }
+}

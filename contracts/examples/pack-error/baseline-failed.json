@@ -1,0 +1,7 @@
+{
+  "error": {
+    "stage": "baseline",
+    "code": "baseline_failed",
+    "message": "3 tests failed before any mutation was applied"
+  }
+}

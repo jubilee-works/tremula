@@ -1,0 +1,28 @@
+{
+  "schema_version": "0.1",
+  "run_id": "20260807T041500Z-3b1f8c",
+  "pack": { "name": "tremula-python", "version": "0.1.0", "contract_version": "0.1" },
+  "entries": [
+    {
+      "mutant_id": "3b1f8c2d4e6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c",
+      "execution_status": "completed",
+      "location": { "line": 18, "column": 11 },
+      "runner": {
+        "exit_class": "ok",
+        "passed": 14,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "collected": 14,
+        "collected_ids_hash": "b5c7d9e1f3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5e7f9a1b3c5d7e9f1a3b5c7",
+        "collect_error": false,
+        "timed_out": false,
+        "duration_ms": 1240
+      },
+      "diff": "--- a/src/scheduling/overlap.py\n+++ b/src/scheduling/overlap.py\n@@ -18 +18 @@\n-    return start < other.end\n+    return start <= other.end\n",
+      "truncated": false,
+      "finished_at": "2026-08-07T04:15:03Z",
+      "backend_raw": { "worker_outcome": "normal", "test_outcome": "survived", "pytest_exit": 0 }
+    }
+  ]
+}

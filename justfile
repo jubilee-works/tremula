@@ -10,6 +10,9 @@ test:
     cargo test
     uv run --package tremula-python pytest packs/python/tests
 
+contracts:
+    TREMULA_UPDATE_CONTRACTS=1 cargo test -p tremula-contracts --test schemas
+
 build:
     uvx maturin build --out dist
 

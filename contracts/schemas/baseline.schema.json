@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Baseline",
+  "description": "Result of running the suite with no mutation applied.",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "description": "Identifier of the run this baseline belongs to, so a stale baseline\npaired with fresh results is detectable.",
+      "type": "string"
+    },
+    "runner": {
+      "description": "Signals from the unmutated run.",
+      "$ref": "#/$defs/RunnerResult"
+    },
+    "schema_version": {
+      "description": "Contract version of this document.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "runner"
+  ],
+  "$defs": {
+    "ExitClass": {
+      "description": "Neutral runner exit classification. The Python pack maps pytest exit codes\nonto these: 0 to `ok`, 1 to `test_failures`, 5 to `no_tests`, 2 to\n`interrupted`, 3 and 4 to `infra_error`.",
+      "oneOf": [
+        {
+          "description": "The suite ran and every test passed.",
+          "type": "string",
+          "const": "ok"
+        },
+        {
+          "description": "The suite ran and reported failures or errors.",
+          "type": "string",
+          "const": "test_failures"
+        },
+        {
+          "description": "The suite ran but collected no tests.",
+          "type": "string",
+          "const": "no_tests"
+        },
+        {
+          "description": "The run was interrupted before finishing.",
+          "type": "string",
+          "const": "interrupted"
+        },
+        {
+          "description": "The runner itself failed, through bad usage or an internal error.",
+          "type": "string",
+          "const": "infra_error"
+        }
+      ]
+    },
+    "RunnerResult": {
+      "description": "What one test-suite execution reported, in language-neutral terms.",
+      "type": "object",
+      "properties": {
+        "collect_error": {
+          "description": "Whether collection itself failed.",
+          "type": "boolean"
+        },
+        "collected": {
+          "description": "Tests collected before execution.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "collected_ids_hash": {
+          "description": "SHA-256 of the sorted collected test identifiers. Detects a changed test\nset even when `collected` is unchanged.",
+          "type": "string"
+        },
+        "duration_ms": {
+          "description": "Wall-clock duration of the run.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "errors": {
+          "description": "Tests that errored during setup or teardown.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "exit_class": {
+          "description": "Neutral classification of how the runner exited.",
+          "$ref": "#/$defs/ExitClass"
+        },
+        "failed": {
+          "description": "Tests that failed an assertion or raised inside the test body.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "passed": {
+          "description": "Tests that passed.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "skipped": {
+          "description": "Tests that were skipped.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "timed_out": {
+          "description": "Whether the runner stopped the suite on its own time limit.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "exit_class",
+        "passed",
+        "failed",
+        "errors",
+        "skipped",
+        "collected",
+        "collected_ids_hash",
+        "collect_error",
+        "timed_out",
+        "duration_ms"
+      ]
+    }
+  }
+}

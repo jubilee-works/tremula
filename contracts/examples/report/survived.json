@@ -1,0 +1,38 @@
+{
+  "schema_version": "0.1",
+  "run": {
+    "run_id": "20260807T041500Z-3b1f8c",
+    "tremula_version": "0.1.0",
+    "decision_rules_version": "v0",
+    "project": ".",
+    "observed_revision": "9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80",
+    "dirty": false,
+    "started_at": "2026-08-07T04:15:00Z",
+    "finished_at": "2026-08-07T04:15:04Z"
+  },
+  "verdicts": [
+    {
+      "mutant_id": "3b1f8c2d4e6a8b0c2d4e6f8a0b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c",
+      "file": "src/scheduling/overlap.py",
+      "span": { "start_byte": 412, "end_byte": 431 },
+      "location": { "line": 18, "column": 11 },
+      "verdict": "survived",
+      "detail": "14 passed"
+    }
+  ],
+  "score": {
+    "total": 1,
+    "killed": 0,
+    "timeout": 0,
+    "survived": 1,
+    "runtime_error": 0,
+    "not_applied": 0,
+    "not_run": 0,
+    "skipped": 0
+  },
+  "exit_code": 1,
+  "caveats": [
+    "survived = not killed by the existing suite; execution coverage is unverified",
+    "survived may include equivalent mutants"
+  ]
+}

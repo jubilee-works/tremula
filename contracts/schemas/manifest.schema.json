@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manifest",
+  "description": "A set of mutants to apply to one project revision.",
+  "type": "object",
+  "properties": {
+    "base": {
+      "description": "The revision the spans were computed against.",
+      "$ref": "#/$defs/Base"
+    },
+    "language": {
+      "description": "Language pack that can execute these mutants.",
+      "$ref": "#/$defs/Language"
+    },
+    "mutants": {
+      "description": "Mutants to apply. An empty list is valid and means \"nothing to test\".",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Mutant"
+      }
+    },
+    "schema_version": {
+      "description": "Contract version of this document.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "language",
+    "base",
+    "mutants"
+  ],
+  "$defs": {
+    "Base": {
+      "description": "The revision mutants were derived from.",
+      "type": "object",
+      "properties": {
+        "revision": {
+          "description": "Source revision the generator used, or absent when unknown.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Language": {
+      "description": "Languages with a tremula pack. Adding a variant is a breaking change for\nolder consumers, which is intended: an unknown language has no pack.",
+      "oneOf": [
+        {
+          "description": "Python projects, executed through the Cosmic Ray backend.",
+          "type": "string",
+          "const": "python"
+        }
+      ]
+    },
+    "Mutant": {
+      "description": "One mutation: replace the bytes of `span` in `file` with `replacement`.",
+      "type": "object",
+      "properties": {
+        "base_file_sha256": {
+          "description": "SHA-256 of the target file's raw bytes, used to reject stale manifests.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What bug this mutant simulates, for humans.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "file": {
+          "description": "Target file, POSIX-style and relative to the project root.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Content-derived identifier, written as lowercase hexadecimal.\n\nIt is the SHA-256 of six UTF-8 encoded parts joined by single NUL\nbytes, in this order: the literal tag `tremula/mutant/v1`, `file`,\n`span.start_byte`, `span.end_byte`, `base_file_sha256`, and\n`replacement`. Both offsets are rendered as unpadded, unsigned decimal\nASCII digits, so byte 412 contributes the three bytes `412`.\n\n`provenance` is excluded, so provenance can change without changing\nidentity. Any producer that follows this derivation arrives at the same\nidentifier for the same mutation.",
+          "type": "string"
+        },
+        "original": {
+          "description": "Exact source text currently occupying the span, UTF-8 decoded.",
+          "type": "string"
+        },
+        "provenance": {
+          "description": "Free-form generator provenance, excluded from the identifier.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "replacement": {
+          "description": "Replacement source text.",
+          "type": "string"
+        },
+        "span": {
+          "description": "Byte range to replace.",
+          "$ref": "#/$defs/Span"
+        }
+      },
+      "required": [
+        "id",
+        "file",
+        "base_file_sha256",
+        "span",
+        "original",
+        "replacement"
+      ]
+    },
+    "Span": {
+      "description": "A half-open byte range over a file's raw bytes: `[start_byte, end_byte)`.\nThat `start_byte` is below `end_byte` is a validation rule, not a schema\nconstraint.",
+      "type": "object",
+      "properties": {
+        "end_byte": {
+          "description": "Exclusive end offset.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "start_byte": {
+          "description": "Inclusive start offset, 0-indexed.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "start_byte",
+        "end_byte"
+      ]
+    }
+  }
+}
