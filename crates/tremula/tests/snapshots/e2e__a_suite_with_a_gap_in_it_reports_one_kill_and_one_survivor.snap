@@ -1,0 +1,15 @@
+---
+source: crates/tremula/tests/e2e.rs
+expression: without_the_incidentals(&said)
+---
+tremula run · 2 mutants · project: sample_project
+baseline: 3 passed in [duration] ✓ (collected=3)
+
+  id        file             span      verdict    detail
+  0d7ba921  schedule.py      247–264   KILLED     1 failed
+  96c8983f  schedule.py      395–408   SURVIVED   3 passed
+
+score: 1/2 killed (0 timeout) · 1 survived · 0 excluded
+note: SURVIVED = not killed by the existing suite (execution/coverage unverified)
+exit 1 (survived present)
+run_dir=[path]

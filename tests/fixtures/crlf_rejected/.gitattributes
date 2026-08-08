@@ -1,0 +1,3 @@
+# The carriage returns in this tree are the fixture. Checking it out with any
+# other line endings would replace the case under test with a passing one.
+* -text

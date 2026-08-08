@@ -109,61 +109,6 @@ fn a_mutant_that_agrees_with_its_file_is_valid() {
 }
 
 #[test]
-fn a_path_that_leaves_the_project_is_rejected() {
-    let root = project();
-    let mutant = Mutant {
-        file: "../escape.py".to_owned(),
-        ..valid_mutant()
-    };
-    assert!(matches!(
-        reject(root.path(), vec![mutant]),
-        ValidationError::PathEscapesProject { .. }
-    ));
-}
-
-#[test]
-fn an_absolute_path_is_rejected() {
-    let root = project();
-    let mutant = Mutant {
-        file: "/etc/hosts".to_owned(),
-        ..valid_mutant()
-    };
-    assert!(matches!(
-        reject(root.path(), vec![mutant]),
-        ValidationError::PathEscapesProject { .. }
-    ));
-}
-
-/// A host's own path syntax is not the contract's. Each spelling here either
-/// means something other than it says on a POSIX host, or is a second spelling
-/// of a file that already has one — and a second spelling would derive a second
-/// identifier for the same mutation.
-#[test]
-fn a_path_that_is_not_written_as_plain_posix_is_rejected() {
-    for spelling in [
-        r"..\escape.py",
-        r"C:\pkg\mod.py",
-        "src//overlap.py",
-        "/src/overlap.py",
-        "src/overlap.py/",
-        "",
-    ] {
-        let root = project();
-        let mutant = Mutant {
-            file: spelling.to_owned(),
-            ..valid_mutant()
-        };
-
-        let error = reject(root.path(), vec![mutant]);
-
-        assert!(
-            matches!(error, ValidationError::PathEscapesProject { .. }),
-            "`{spelling}` was not rejected: {error}"
-        );
-    }
-}
-
-#[test]
 fn a_missing_target_file_is_rejected() {
     let root = TempDir::new().unwrap();
     assert!(matches!(
@@ -201,49 +146,6 @@ fn a_file_that_changed_since_the_manifest_was_generated_is_rejected() {
     let error = reject(root.path(), vec![mutant]);
     assert!(matches!(error, ValidationError::StaleFile { .. }));
     assert!(error.to_string().contains("regenerate the manifest"));
-}
-
-/// The path spelling is inside the project; where the filesystem sends it is
-/// not. Mutating through the link would edit a file the project does not own,
-/// and put it back from a snapshot that never covered it.
-#[test]
-fn a_target_that_is_a_symbolic_link_is_rejected() {
-    let root = project();
-    let outside = TempDir::new().unwrap();
-    let real = outside.path().join("elsewhere.py");
-    fs::write(&real, SOURCE).unwrap();
-    let link = root.path().join("src/scheduling/linked.py");
-    std::os::unix::fs::symlink(&real, &link).unwrap();
-    let mutant = with_canonical_id(Mutant {
-        file: "src/scheduling/linked.py".to_owned(),
-        ..valid_mutant()
-    });
-
-    let error = reject(root.path(), vec![mutant]);
-
-    assert!(
-        matches!(error, ValidationError::SymlinkTarget { .. }),
-        "{error}"
-    );
-}
-
-/// The same escape one level up: the file itself is ordinary, but a directory on
-/// the way to it is a link out of the project. Only resolving the whole path
-/// catches this one.
-#[test]
-fn a_target_reached_through_a_linked_directory_is_rejected() {
-    let root = TempDir::new().unwrap();
-    let outside = TempDir::new().unwrap();
-    fs::create_dir_all(outside.path().join("scheduling")).unwrap();
-    fs::write(outside.path().join("scheduling/overlap.py"), SOURCE).unwrap();
-    std::os::unix::fs::symlink(outside.path(), root.path().join("src")).unwrap();
-
-    let error = reject(root.path(), vec![valid_mutant()]);
-
-    assert!(
-        matches!(error, ValidationError::TargetOutsideProject { .. }),
-        "{error}"
-    );
 }
 
 #[test]

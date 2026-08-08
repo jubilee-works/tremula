@@ -216,10 +216,15 @@ fn attempt(args: &RunArgs) -> Result<ExitCode, RunFailure> {
         eprintln!("warning: took over the lock left by {previous}, which is no longer running");
     }
     let observed = provenance::observe(&args.project);
-    let out_parent = args
-        .out
-        .clone()
-        .unwrap_or_else(|| args.project.join(TREMULA_DIR).join(RUNS_DIR));
+    // Absolute from here on: the pack is handed the run directory and starts
+    // subprocesses with working directories of their own, so a relative path
+    // would have it writing somewhere else entirely.
+    let out_parent = absolute(
+        &args
+            .out
+            .clone()
+            .unwrap_or_else(|| args.project.join(TREMULA_DIR).join(RUNS_DIR)),
+    )?;
     if manifest.mutants.is_empty() {
         return nothing_to_test(args, &out_parent, &id, started, &observed);
     }
@@ -261,7 +266,7 @@ fn execute(
     let report = report::build_report(manifest, &left.results, &left.baseline, recorded)?;
     write_json(&run.path().join("report.json"), &report)?;
     println!("{}", console::render(&report, Some(&left.baseline)));
-    println!("run_dir={}", run.path().display());
+    announce(run);
     Ok(ExitCode::from(report.exit_code))
 }
 
@@ -284,7 +289,7 @@ fn nothing_to_test(
     write_json(&run.path().join("report.json"), &report)?;
     publish(out_parent, &run)?;
     println!("{}", console::render(&report, None));
-    println!("run_dir={}", run.path().display());
+    announce(&run);
     Ok(ExitCode::from(report.exit_code))
 }
 
@@ -323,6 +328,14 @@ fn warn(verified: &Verified) {
             ),
         }
     }
+}
+
+/// Print where the run's documents are, as the one line of this output a machine
+/// is meant to read. Absolute, because the caller's working directory is not the
+/// reader's.
+fn announce(run: &RunDir) {
+    let path = fs::canonicalize(run.path()).unwrap_or_else(|_| run.path().to_path_buf());
+    println!("run_dir={}", path.display());
 }
 
 /// Everything the report records about the run itself.
@@ -399,8 +412,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 /// A path the pack can use from a working directory of its own.
+///
+/// Resolved without asking the filesystem, because a run directory has to be
+/// absolute before it exists.
 fn absolute(path: &Path) -> Result<PathBuf, RunFailure> {
-    fs::canonicalize(path).map_err(|err| RunFailure::PathUnresolvable {
+    std::path::absolute(path).map_err(|err| RunFailure::PathUnresolvable {
         path: path.to_path_buf(),
         reason: err.to_string(),
     })

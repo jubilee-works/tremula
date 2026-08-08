@@ -2,7 +2,7 @@ default: lint test
 
 lint:
     cargo fmt --check
-    cargo clippy --all-targets -- -D warnings
+    cargo clippy --all-targets --all-features -- -D warnings
     uv run --package tremula-python ruff check packs/python
     uv run --package tremula-python pyright --project packs/python packs/python
 
@@ -18,4 +18,4 @@ build:
 
 e2e:
     uv sync
-    uv run tremula --version
+    INSTA_UPDATE=no cargo test --test e2e --features e2e

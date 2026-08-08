@@ -14,7 +14,7 @@ jobs:
         with:
           components: clippy, rustfmt
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo clippy --all-targets --all-features -- -D warnings
       - run: cargo test
 
   python-pack:
@@ -32,5 +32,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: astral-sh/setup-uv@v4
+      # Installs the language pack and its execution backend into `.venv`, which
+      # is the interpreter the end-to-end tests hand to the binary.
       - run: uv sync
       - run: uv run tremula --version
+      # Snapshots are assertions here, never updated by a run that disagrees.
+      - run: cargo test --test e2e --features e2e
+        env:
+          INSTA_UPDATE: "no"
