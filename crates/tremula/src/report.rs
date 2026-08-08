@@ -96,8 +96,25 @@ pub fn build_report(
             detail: judged.detail,
         });
     }
+    Ok(assemble(run, verdicts))
+}
+
+/// The report of a run that had nothing to judge.
+///
+/// A manifest with no mutants is valid input — a change that touched no code has
+/// none — and such a run still produces a report, because a consumer that reads
+/// one run's report should not have to special-case the empty case. The score
+/// policy and the caveats come from the same place as every other report's, so
+/// the two cannot drift apart.
+#[must_use]
+pub fn build_empty_report(run: RunMeta) -> Report {
+    assemble(run, Vec::new())
+}
+
+/// Wrap judged verdicts in the document that carries them.
+fn assemble(run: RunMeta, verdicts: Vec<MutantVerdict>) -> Report {
     let score = tally(&verdicts);
-    Ok(Report {
+    Report {
         schema_version: SCHEMA_VERSION.to_owned(),
         run,
         verdicts,
@@ -107,7 +124,7 @@ pub fn build_report(
             CAVEAT_COVERAGE_UNVERIFIED.to_owned(),
             CAVEAT_POSSIBLE_EQUIVALENTS.to_owned(),
         ],
-    })
+    }
 }
 
 /// Index the results by mutant, refusing anything but an exact cover of the

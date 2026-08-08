@@ -10,13 +10,19 @@ clap = { version = "4", features = ["derive"] }
 tremula-contracts = { path = "../tremula-contracts" }
 thiserror = "2"
 sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Timestamps: `formatting` renders them, `macros` compiles a run identifier's
+# own format at build time.
+time = { version = "0.3", features = ["formatting", "macros"] }
+# Asking whether a process is still alive, with no `unsafe` block of our own.
+rustix = { version = "1", features = ["process"] }
 
 [dev-dependencies]
 assert_cmd = "2"
 insta = "1"
-serde = "1"
 tempfile = "3"
+time = { version = "0.3", features = ["macros"] }
 
 [lints]
 workspace = true

@@ -2,14 +2,18 @@
 //! replacement parse?) belong to the pack; everything here is bytes, hashes,
 //! and paths.
 
+mod defects;
+
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet, hash_map::Entry},
     fs, io,
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
 };
 
 use sha2::{Digest, Sha256};
 use tremula_contracts::manifest::{Manifest, Mutant, Span};
+
+pub use defects::{ValidationError, ValidationWarning};
 
 /// How large a replacement can get before we warn about serialization bulk.
 const LARGE_REPLACEMENT_BYTES: usize = 10 * 1024;
@@ -19,161 +23,6 @@ const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 
 /// How many leading lines may carry an encoding declaration.
 const COOKIE_LINES: usize = 2;
-
-/// A manifest defect that stops the run. Every message names the cause and the
-/// next action — these strings are a public surface, tested like one.
-#[derive(Debug, thiserror::Error)]
-pub enum ValidationError {
-    /// The target path is absolute or leaves the project root.
-    #[error(
-        "mutant {mutant_id}: file `{file}` is not a plain relative path inside the project; use a POSIX path relative to the project root"
-    )]
-    PathEscapesProject {
-        /// The mutant that carries the offending path.
-        mutant_id: String,
-        /// The path as written in the manifest.
-        file: String,
-    },
-    /// The target file does not exist.
-    #[error("mutant {mutant_id}: target file `{file}` does not exist under the project root")]
-    FileMissing {
-        /// The mutant whose target is missing.
-        mutant_id: String,
-        /// The path that was looked up.
-        file: String,
-    },
-    /// The target file is there but could not be read.
-    #[error(
-        "mutant {mutant_id}: cannot read target file `{file}`: {reason}; check that it is a readable regular file"
-    )]
-    FileUnreadable {
-        /// The mutant whose target could not be read.
-        mutant_id: String,
-        /// The path that could not be read.
-        file: String,
-        /// What the operating system reported.
-        reason: String,
-    },
-    /// The file changed since the manifest was generated.
-    #[error(
-        "mutant {mutant_id}: `{file}` has changed since the manifest was generated (its SHA-256 no longer matches base_file_sha256); regenerate the manifest against the current sources"
-    )]
-    StaleFile {
-        /// The mutant whose target no longer hashes to the recorded value.
-        mutant_id: String,
-        /// The path that changed.
-        file: String,
-    },
-    /// The file is not valid UTF-8 at all.
-    #[error(
-        "mutant {mutant_id}: `{file}` is not valid UTF-8; only plain UTF-8 sources are supported"
-    )]
-    NotUtf8 {
-        /// The mutant whose target cannot be decoded.
-        mutant_id: String,
-        /// The path that cannot be decoded.
-        file: String,
-    },
-    /// The file carries a BOM or declares a non-UTF-8 coding cookie.
-    #[error(
-        "mutant {mutant_id}: `{file}` carries a byte-order mark or declares a non-UTF-8 coding cookie; only plain UTF-8 sources are supported"
-    )]
-    UnsupportedEncoding {
-        /// The mutant whose target announces another encoding.
-        mutant_id: String,
-        /// The path that announces another encoding.
-        file: String,
-    },
-    /// The file uses CRLF line endings.
-    #[error(
-        "mutant {mutant_id}: `{file}` uses CRLF line endings; convert the file to LF before generating mutants for it"
-    )]
-    UnsupportedLineEndings {
-        /// The mutant whose target uses CRLF.
-        mutant_id: String,
-        /// The path that uses CRLF.
-        file: String,
-    },
-    /// The span does not fit inside the file.
-    #[error("mutant {mutant_id}: span {start}..{end} does not fit inside `{file}` ({len} bytes)")]
-    SpanOutOfBounds {
-        /// The mutant with the out-of-range span.
-        mutant_id: String,
-        /// Start offset as written in the manifest.
-        start: u64,
-        /// End offset as written in the manifest.
-        end: u64,
-        /// The file the span was measured against.
-        file: String,
-        /// Actual size of that file in bytes.
-        len: u64,
-    },
-    /// The span is empty or inverted.
-    #[error(
-        "mutant {mutant_id}: span is empty (start_byte {start} is not below end_byte {end}); insertions are not supported"
-    )]
-    EmptySpan {
-        /// The mutant with the empty span.
-        mutant_id: String,
-        /// Start offset as written in the manifest.
-        start: u64,
-        /// End offset as written in the manifest.
-        end: u64,
-    },
-    /// The replacement carries a carriage return.
-    #[error(
-        "mutant {mutant_id}: replacement contains a carriage return; use LF-only line endings in replacements"
-    )]
-    CarriageReturnInReplacement {
-        /// The mutant whose replacement is not LF-only.
-        mutant_id: String,
-    },
-    /// The bytes at the span differ from `original`.
-    #[error(
-        "mutant {mutant_id}: the bytes at the span do not match `original`; regenerate the manifest against the current sources"
-    )]
-    OriginalMismatch {
-        /// The mutant whose recorded original text is stale.
-        mutant_id: String,
-    },
-    /// The replacement changes nothing.
-    #[error(
-        "mutant {mutant_id}: replacement is identical to the original text; a mutant must change the code"
-    )]
-    IdenticalReplacement {
-        /// The mutant that would be a no-op.
-        mutant_id: String,
-    },
-    /// The id is not the canonical derivation of the mutant's fields.
-    #[error(
-        "mutant {mutant_id}: id does not match the canonical derivation (expected {expected}); recompute it as documented in the manifest schema"
-    )]
-    IdMismatch {
-        /// The identifier as written in the manifest.
-        mutant_id: String,
-        /// The identifier the mutant's own fields derive.
-        expected: String,
-    },
-    /// Two mutants share one id.
-    #[error("mutant id {id} appears more than once; every mutant in a manifest must be unique")]
-    DuplicateId {
-        /// The repeated identifier.
-        id: String,
-    },
-}
-
-/// A non-fatal observation about the manifest.
-#[derive(Debug, PartialEq, Eq)]
-pub enum ValidationWarning {
-    /// A replacement above `LARGE_REPLACEMENT_BYTES` — legal, but it is
-    /// serialized twice on its way to the backend.
-    LargeReplacement {
-        /// The mutant with the bulky replacement.
-        mutant_id: String,
-        /// Size of that replacement in bytes.
-        bytes: usize,
-    },
-}
 
 /// Compute the canonical content-derived identifier for a mutation, exactly as
 /// the manifest contract's `Mutant.id` documentation specifies.
@@ -204,12 +53,37 @@ pub fn canonical_mutant_id(
     format!("{:x}", hasher.finalize())
 }
 
+/// One target file as validation read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedTarget {
+    /// POSIX path relative to the project root, spelled as the manifest spells
+    /// it.
+    pub file: String,
+    /// The bytes whose hash the manifest was checked against.
+    pub bytes: Vec<u8>,
+}
+
+/// What validation concluded, and what it read to conclude it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Verified {
+    /// Non-fatal observations worth telling the reader about.
+    pub warnings: Vec<ValidationWarning>,
+    /// Every target file, once each, in the order the manifest first mentions
+    /// them.
+    pub targets: Vec<VerifiedTarget>,
+}
+
 /// Validate a manifest against the project's actual files.
 ///
-/// Returns the non-fatal observations worth telling the user about, or the
-/// first defect that makes the manifest unusable. Checks run in a fixed order
-/// so that the reported defect is always the most fundamental one: a stale file
-/// is reported as stale rather than as a span mismatch it happens to cause.
+/// Returns what was observed along with the bytes that were read, or the first
+/// defect that makes the manifest unusable. Checks run in a fixed order so that
+/// the reported defect is always the most fundamental one: a stale file is
+/// reported as stale rather than as a span mismatch it happens to cause.
+///
+/// Each target is read exactly once, and those bytes are what every check is
+/// measured against and what the caller gets back. Handing them over rather than
+/// dropping them is deliberate: the run's snapshot has to be the bytes the
+/// hashes matched, not a second read of a file that may since have changed.
 ///
 /// # Errors
 ///
@@ -218,9 +92,18 @@ pub fn canonical_mutant_id(
 pub fn validate_manifest(
     manifest: &Manifest,
     project_root: &Path,
-) -> Result<Vec<ValidationWarning>, ValidationError> {
+) -> Result<Verified, ValidationError> {
     let mut seen: HashSet<&str> = HashSet::new();
     let mut warnings = Vec::new();
+    let mut read: HashMap<&str, Vec<u8>> = HashMap::new();
+    let mut first_mentioned: Vec<&str> = Vec::new();
+    if manifest.mutants.is_empty() {
+        return Ok(Verified {
+            warnings,
+            targets: Vec::new(),
+        });
+    }
+    let root = canonical_root(project_root)?;
     for mutant in &manifest.mutants {
         let relative = project_relative_path(mutant)?;
         if !seen.insert(mutant.id.as_str()) {
@@ -228,11 +111,20 @@ pub fn validate_manifest(
                 id: mutant.id.clone(),
             });
         }
-        let bytes = read_target(mutant, &project_root.join(relative))?;
-        check_encoding(mutant, &bytes)?;
-        check_hash(mutant, &bytes)?;
+        let bytes = match read.entry(mutant.file.as_str()) {
+            Entry::Occupied(already) => already.into_mut(),
+            Entry::Vacant(first) => {
+                let path = project_root.join(relative);
+                check_containment(mutant, &root, &path)?;
+                let bytes = read_target(mutant, &path)?;
+                first_mentioned.push(mutant.file.as_str());
+                first.insert(bytes)
+            }
+        };
+        check_encoding(mutant, bytes)?;
+        check_hash(mutant, bytes)?;
         check_replacement_line_endings(mutant)?;
-        check_span(mutant, &bytes)?;
+        check_span(mutant, bytes)?;
         check_replacement(mutant)?;
         check_id(mutant)?;
         if mutant.replacement.len() > LARGE_REPLACEMENT_BYTES {
@@ -242,7 +134,16 @@ pub fn validate_manifest(
             });
         }
     }
-    Ok(warnings)
+    let targets = first_mentioned
+        .into_iter()
+        .filter_map(|file| {
+            read.remove(file).map(|bytes| VerifiedTarget {
+                file: file.to_owned(),
+                bytes,
+            })
+        })
+        .collect();
+    Ok(Verified { warnings, targets })
 }
 
 /// Accept only paths built entirely from ordinary names. This is stricter than
@@ -280,24 +181,61 @@ fn is_plain_posix_spelling(file: &str) -> bool {
         && !file.contains("//")
 }
 
+/// The project root as the filesystem sees it, which is what every target has
+/// to resolve inside of.
+fn canonical_root(project_root: &Path) -> Result<PathBuf, ValidationError> {
+    fs::canonicalize(project_root).map_err(|err| ValidationError::ProjectRootUnresolvable {
+        root: project_root.to_path_buf(),
+        reason: err.to_string(),
+    })
+}
+
+/// Confirm the target really is a file of the project's own.
+///
+/// A relative path with no `..` in it still reaches out of the project when the
+/// filesystem cooperates: the file itself can be a symbolic link, or a directory
+/// on the way to it can be. Either would have tremula mutate a file the project
+/// does not own — in place, and with a snapshot that does not cover it — so the
+/// spelling is checked against where the path actually leads, not only against
+/// how it reads.
+fn check_containment(mutant: &Mutant, root: &Path, path: &Path) -> Result<(), ValidationError> {
+    let link = fs::symlink_metadata(path).map_err(|err| unreadable_target(mutant, &err))?;
+    if link.file_type().is_symlink() {
+        return Err(ValidationError::SymlinkTarget {
+            mutant_id: mutant.id.clone(),
+            file: mutant.file.clone(),
+        });
+    }
+    let resolved = fs::canonicalize(path).map_err(|err| unreadable_target(mutant, &err))?;
+    if !resolved.starts_with(root) {
+        return Err(ValidationError::TargetOutsideProject {
+            mutant_id: mutant.id.clone(),
+            file: mutant.file.clone(),
+        });
+    }
+    Ok(())
+}
+
 /// Read the target, keeping "it is not there" and "it is there but I cannot
 /// read it" apart. Reporting the second as the first sends the reader looking
 /// for a missing file that exists.
 fn read_target(mutant: &Mutant, path: &Path) -> Result<Vec<u8>, ValidationError> {
-    fs::read(path).map_err(|err| {
-        if err.kind() == io::ErrorKind::NotFound {
-            ValidationError::FileMissing {
-                mutant_id: mutant.id.clone(),
-                file: mutant.file.clone(),
-            }
-        } else {
-            ValidationError::FileUnreadable {
-                mutant_id: mutant.id.clone(),
-                file: mutant.file.clone(),
-                reason: err.to_string(),
-            }
-        }
-    })
+    fs::read(path).map_err(|err| unreadable_target(mutant, &err))
+}
+
+/// Which of the two "cannot use this file" failures an I/O error is.
+fn unreadable_target(mutant: &Mutant, err: &io::Error) -> ValidationError {
+    if err.kind() == io::ErrorKind::NotFound {
+        return ValidationError::FileMissing {
+            mutant_id: mutant.id.clone(),
+            file: mutant.file.clone(),
+        };
+    }
+    ValidationError::FileUnreadable {
+        mutant_id: mutant.id.clone(),
+        file: mutant.file.clone(),
+        reason: err.to_string(),
+    }
 }
 
 /// Reject anything that is not plain UTF-8 with LF endings. A byte-order mark

@@ -1,0 +1,338 @@
+//! Talking to a language pack: what the core requires of the handshake, and what
+//! it makes of a pack that fails.
+//!
+//! The pack here is a script standing in for an interpreter, so that every answer
+//! a pack could give — including the ones a working pack never gives — can be put
+//! in front of the core.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::{fs, os::unix::fs::PermissionsExt, path::Path, path::PathBuf};
+
+use tempfile::TempDir;
+use tremula::{
+    pack::{self, PackError},
+    python_env::PythonEnv,
+};
+use tremula_contracts::{SCHEMA_VERSION, pack_error::Stage};
+
+/// The capabilities of a pack the core is happy with.
+const GOOD_CAPABILITIES: &str = r#"{"name":"tremula-python","version":"0.1.0","contract_version":"0.1","subcommands":["run","collect","validate"],"validate_checks":["parses"]}"#;
+
+/// A stand-in interpreter. `body` is a shell script that receives the arguments
+/// the core would pass a real one, and every invocation appends its arguments to
+/// `arguments.txt` beside it first.
+fn fake_pack(root: &Path, body: &str) -> PythonEnv {
+    let interpreter = root.join("python");
+    let script = format!(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \"{}/arguments.txt\"\n{body}",
+        root.display()
+    );
+    fs::write(&interpreter, script).unwrap();
+    fs::set_permissions(&interpreter, fs::Permissions::from_mode(0o755)).unwrap();
+    PythonEnv::at(interpreter)
+}
+
+/// A pack that answers the handshake with `document` and nothing else.
+fn pack_answering(root: &Path, document: &str) -> PythonEnv {
+    fake_pack(root, &format!("cat <<'DOCUMENT'\n{document}\nDOCUMENT\n"))
+}
+
+fn arguments(root: &Path) -> Vec<String> {
+    fs::read_to_string(root.join("arguments.txt"))
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A capabilities document with one field replaced.
+fn capabilities_with(field: &str, value: &str) -> String {
+    let mut document: serde_json::Value = serde_json::from_str(GOOD_CAPABILITIES).unwrap();
+    document[field] = serde_json::from_str(value).unwrap();
+    document.to_string()
+}
+
+#[test]
+fn a_pack_that_speaks_the_contract_is_accepted() {
+    let workspace = TempDir::new().unwrap();
+    let env = pack_answering(workspace.path(), GOOD_CAPABILITIES);
+
+    let capabilities = pack::handshake(&env).unwrap();
+
+    assert_eq!(capabilities.name, "tremula-python");
+    assert_eq!(capabilities.contract_version, SCHEMA_VERSION);
+}
+
+/// The handshake runs the module, not a script, and isolated: a `tremula_python`
+/// directory in the working directory must not be able to answer for the
+/// installed pack.
+#[test]
+fn every_pack_call_runs_the_installed_module_in_isolation() {
+    let workspace = TempDir::new().unwrap();
+    let env = pack_answering(workspace.path(), GOOD_CAPABILITIES);
+
+    pack::handshake(&env).unwrap();
+
+    let passed = arguments(workspace.path());
+    assert_eq!(passed[0], "-I");
+    assert_eq!(passed[1], "-m");
+    assert_eq!(passed[2], "tremula_python");
+    assert_eq!(passed[3], "--capabilities");
+}
+
+#[test]
+fn a_pack_on_another_contract_version_is_refused_with_both_versions() {
+    let workspace = TempDir::new().unwrap();
+    let env = pack_answering(
+        workspace.path(),
+        &capabilities_with("contract_version", "\"9.9\""),
+    );
+
+    let failure = pack::handshake(&env).unwrap_err();
+
+    let complaint = failure.to_string();
+    assert!(complaint.contains("9.9"), "{complaint}");
+    assert!(complaint.contains(SCHEMA_VERSION), "{complaint}");
+    assert!(complaint.contains("tremula-python"), "{complaint}");
+}
+
+#[test]
+fn a_pack_that_cannot_do_everything_the_core_needs_is_refused_by_name() {
+    let workspace = TempDir::new().unwrap();
+    let env = pack_answering(
+        workspace.path(),
+        &capabilities_with("subcommands", r#"["run"]"#),
+    );
+
+    let failure = pack::handshake(&env).unwrap_err();
+
+    let complaint = failure.to_string();
+    assert!(complaint.contains("collect"), "{complaint}");
+    assert!(complaint.contains("validate"), "{complaint}");
+}
+
+/// A pack that performs no language checks cannot tell a mutant this language
+/// can express from one it cannot, which is the pack's whole share of validation.
+#[test]
+fn a_pack_that_performs_no_language_checks_is_refused() {
+    let workspace = TempDir::new().unwrap();
+    let env = pack_answering(
+        workspace.path(),
+        &capabilities_with("validate_checks", "[]"),
+    );
+
+    let failure = pack::handshake(&env).unwrap_err();
+
+    assert!(
+        matches!(failure, PackError::NoLanguageChecks { .. }),
+        "{failure}"
+    );
+}
+
+#[test]
+fn a_handshake_that_is_not_a_capabilities_document_is_refused() {
+    let workspace = TempDir::new().unwrap();
+    let env = pack_answering(workspace.path(), "this is not a document");
+
+    let failure = pack::handshake(&env).unwrap_err();
+
+    assert!(
+        matches!(failure, PackError::UnreadableHandshake { .. }),
+        "{failure}"
+    );
+}
+
+#[test]
+fn an_interpreter_that_will_not_start_is_reported_as_such() {
+    let workspace = TempDir::new().unwrap();
+
+    let failure = pack::handshake(&PythonEnv::at(workspace.path().join("nothing"))).unwrap_err();
+
+    assert!(matches!(failure, PackError::NotStarted { .. }), "{failure}");
+}
+
+/// A run directory and a manifest, for the `run` calls below.
+struct Request {
+    project: PathBuf,
+    manifest: PathBuf,
+    run_dir: PathBuf,
+}
+
+fn request(workspace: &Path) -> Request {
+    let project = workspace.join("project");
+    let run_dir = workspace.join("runs").join("20260809T041500Z-3b1f8c");
+    fs::create_dir_all(run_dir.join("logs")).unwrap();
+    fs::create_dir_all(&project).unwrap();
+    let manifest = workspace.join("manifest.json");
+    fs::write(&manifest, "{}").unwrap();
+    Request {
+        project,
+        manifest,
+        run_dir,
+    }
+}
+
+fn run(env: &PythonEnv, request: &Request) -> Result<(), PackError> {
+    pack::run(
+        env,
+        &request.manifest,
+        &request.project,
+        &request.run_dir,
+        &["tests/unit".to_owned()],
+        Some(12.5),
+        false,
+    )
+}
+
+#[test]
+fn a_run_passes_the_manifest_the_project_and_its_limits_as_absolute_paths() {
+    let workspace = TempDir::new().unwrap();
+    let env = fake_pack(workspace.path(), "exit 0\n");
+    let asked = request(workspace.path());
+
+    run(&env, &asked).unwrap();
+
+    let passed = arguments(workspace.path());
+    assert!(passed.contains(&"run".to_owned()), "{passed:?}");
+    for value in [&asked.manifest, &asked.project, &asked.run_dir] {
+        let spelling = value.display().to_string();
+        assert!(
+            passed.contains(&spelling),
+            "{spelling} missing from {passed:?}"
+        );
+        assert!(value.is_absolute(), "{spelling}");
+    }
+    assert!(passed.contains(&"tests/unit".to_owned()), "{passed:?}");
+    assert!(passed.contains(&"12.5".to_owned()), "{passed:?}");
+}
+
+/// The pack diagnoses its own failures, and the core says what the diagnosis
+/// means in the reader's terms while keeping the pack's own code.
+#[test]
+fn a_pack_that_diagnoses_its_own_failure_is_reported_in_the_readers_terms() {
+    let workspace = TempDir::new().unwrap();
+    let env = fake_pack(
+        workspace.path(),
+        "echo 'running the suite'\necho '{\"error\":{\"stage\":\"baseline\",\"code\":\"baseline_failed\",\"message\":\"3 tests failed before any mutation was applied\"}}'\nexit 2\n",
+    );
+    let asked = request(workspace.path());
+
+    let failure = run(&env, &asked).unwrap_err();
+
+    let PackError::Reported {
+        stage, ref code, ..
+    } = failure
+    else {
+        panic!("{failure}");
+    };
+    assert_eq!(stage, Stage::Baseline);
+    assert_eq!(code, "baseline_failed");
+    let complaint = failure.to_string();
+    assert!(complaint.contains("your test suite failed"), "{complaint}");
+    assert!(complaint.contains("3 tests failed"), "{complaint}");
+    assert!(complaint.contains("baseline_failed"), "{complaint}");
+}
+
+/// Only the last line is the document. Anything a pack printed before it is
+/// diagnostics, even when it looks exactly like a diagnosis.
+#[test]
+fn only_the_last_line_counts_as_the_diagnosis() {
+    let workspace = TempDir::new().unwrap();
+    let env = fake_pack(
+        workspace.path(),
+        "echo '{\"error\":{\"stage\":\"preflight\",\"code\":\"decoy\",\"message\":\"not the diagnosis\"}}'\necho '{\"error\":{\"stage\":\"collect\",\"code\":\"unreadable_session\",\"message\":\"the session could not be read\"}}'\nexit 2\n",
+    );
+    let asked = request(workspace.path());
+
+    let failure = run(&env, &asked).unwrap_err();
+
+    let PackError::Reported {
+        stage, ref code, ..
+    } = failure
+    else {
+        panic!("{failure}");
+    };
+    assert_eq!(stage, Stage::Collect);
+    assert_eq!(code, "unreadable_session");
+}
+
+#[test]
+fn a_pack_that_fails_without_a_diagnosis_is_reported_with_what_it_did_say() {
+    let workspace = TempDir::new().unwrap();
+    let env = fake_pack(
+        workspace.path(),
+        "echo 'Traceback (most recent call last):'\necho 'MemoryError'\nexit 1\n",
+    );
+    let asked = request(workspace.path());
+
+    let failure = run(&env, &asked).unwrap_err();
+
+    let complaint = failure.to_string();
+    assert!(matches!(failure, PackError::Crashed { .. }), "{complaint}");
+    assert!(complaint.contains("MemoryError"), "{complaint}");
+    assert!(
+        complaint.contains(&asked.run_dir.display().to_string()),
+        "{complaint}"
+    );
+}
+
+/// Whatever the pack said is kept, because the run directory is what a reader is
+/// pointed at when something went wrong.
+#[test]
+fn what_the_pack_said_is_kept_in_the_runs_log() {
+    let workspace = TempDir::new().unwrap();
+    let env = fake_pack(workspace.path(), "echo 'planning 2 mutants'\nexit 0\n");
+    let asked = request(workspace.path());
+
+    run(&env, &asked).unwrap();
+
+    let log = fs::read_to_string(asked.run_dir.join("logs").join("pack.txt")).unwrap();
+    assert!(log.contains("planning 2 mutants"), "{log}");
+}
+
+#[test]
+fn deep_validation_asks_the_pack_to_validate_and_nothing_more() {
+    let workspace = TempDir::new().unwrap();
+    let env = fake_pack(workspace.path(), "exit 0\n");
+    let asked = request(workspace.path());
+
+    pack::validate_deep(&env, &asked.manifest, &asked.project).unwrap();
+
+    let passed = arguments(workspace.path());
+    assert!(passed.contains(&"validate".to_owned()), "{passed:?}");
+    assert!(!passed.contains(&"run".to_owned()), "{passed:?}");
+}
+
+/// The one case with a real pack: the values in the contract's own example are
+/// the values the installed pack reports.
+#[test]
+fn the_repositorys_pack_answers_the_handshake() {
+    let interpreter = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(".venv")
+        .join("bin")
+        .join("python");
+    if !interpreter.is_file() {
+        eprintln!(
+            "skipped: no virtual environment at {}",
+            interpreter.display()
+        );
+        return;
+    }
+
+    let capabilities = pack::handshake(&PythonEnv::at(interpreter)).unwrap();
+
+    assert_eq!(capabilities.name, "tremula-python");
+    assert_eq!(capabilities.contract_version, SCHEMA_VERSION);
+    assert_eq!(capabilities.subcommands, ["run", "collect", "validate"]);
+    assert_eq!(
+        capabilities.validate_checks,
+        [
+            "parses",
+            "single_statement",
+            "round_trips",
+            "span_matches_node"
+        ]
+    );
+}

@@ -1,0 +1,96 @@
+//! What a run records about where it came from.
+//!
+//! None of this can be derived from the documents a run judges, and none of it
+//! can be observed later: the revision has to be read before the run writes its
+//! first artifact, because the run directory lives inside the project and would
+//! otherwise report every clean project as modified.
+
+use std::{path::Path, process::Command};
+
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use tremula_contracts::report::RunMeta;
+
+use crate::{decision::DECISION_RULES_VERSION, run_dir::TREMULA_DIR};
+
+/// What the project's sources were at when the run started.
+#[derive(Debug, Default)]
+pub struct Observed {
+    /// The revision the project was at, when it has one.
+    pub revision: Option<String>,
+    /// Whether the working tree had changes of its own.
+    pub dirty: bool,
+}
+
+/// Observe the project's revision, if it has one.
+///
+/// The working tree's own artifacts are excluded from the comparison: the run
+/// directory is created inside the project, and counting it would report every
+/// clean project as modified.
+#[must_use]
+pub fn observe(project_root: &Path) -> Observed {
+    let Some(revision) = git(project_root, &["rev-parse", "HEAD"]) else {
+        return Observed::default();
+    };
+    let dirty = git(
+        project_root,
+        &[
+            "status",
+            "--porcelain",
+            "--",
+            ".",
+            &format!(":(exclude){TREMULA_DIR}"),
+        ],
+    )
+    .is_some_and(|changes| !changes.is_empty());
+    Observed {
+        revision: Some(revision),
+        dirty,
+    }
+}
+
+/// Ask git something about the project, or nothing if it is not a repository.
+fn git(project_root: &Path, arguments: &[&str]) -> Option<String> {
+    let answer = Command::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .args(arguments)
+        .output()
+        .ok()?;
+    if !answer.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&answer.stdout).trim().to_owned())
+}
+
+/// Everything about the run that cannot be derived from the documents it judged.
+///
+/// `project` is the root as the caller spelled it, which is what a reader
+/// recognises and what makes the console line about it worth printing.
+#[must_use]
+pub fn run_meta(
+    run_id: &str,
+    project: &str,
+    started: OffsetDateTime,
+    observed: &Observed,
+) -> RunMeta {
+    RunMeta {
+        run_id: run_id.to_owned(),
+        tremula_version: env!("CARGO_PKG_VERSION").to_owned(),
+        decision_rules_version: DECISION_RULES_VERSION.to_owned(),
+        project: project.to_owned(),
+        observed_revision: observed.revision.clone(),
+        dirty: observed.dirty,
+        started_at: timestamp(started),
+        finished_at: timestamp(OffsetDateTime::now_utc()),
+    }
+}
+
+/// A moment, as every contract document spells one.
+#[must_use]
+pub fn timestamp(at: OffsetDateTime) -> String {
+    // The description is a fixed standard and every component it needs is one an
+    // `OffsetDateTime` always has, so this cannot fail; falling back to the
+    // epoch's own spelling keeps that from being a panic.
+    at.format(&Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_owned())
+}

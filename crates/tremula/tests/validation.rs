@@ -94,15 +94,18 @@ fn reject(root: &Path, mutants: Vec<Mutant>) -> ValidationError {
 #[test]
 fn an_empty_mutant_list_is_valid() {
     let root = project();
-    let warnings = validate_manifest(&manifest(vec![]), root.path()).unwrap();
-    assert!(warnings.is_empty(), "nothing to test is a valid manifest");
+    let verified = validate_manifest(&manifest(vec![]), root.path()).unwrap();
+    assert!(
+        verified.warnings.is_empty(),
+        "nothing to test is a valid manifest"
+    );
 }
 
 #[test]
 fn a_mutant_that_agrees_with_its_file_is_valid() {
     let root = project();
-    let warnings = validate_manifest(&manifest(vec![valid_mutant()]), root.path()).unwrap();
-    assert!(warnings.is_empty());
+    let verified = validate_manifest(&manifest(vec![valid_mutant()]), root.path()).unwrap();
+    assert!(verified.warnings.is_empty());
 }
 
 #[test]
@@ -200,6 +203,49 @@ fn a_file_that_changed_since_the_manifest_was_generated_is_rejected() {
     assert!(error.to_string().contains("regenerate the manifest"));
 }
 
+/// The path spelling is inside the project; where the filesystem sends it is
+/// not. Mutating through the link would edit a file the project does not own,
+/// and put it back from a snapshot that never covered it.
+#[test]
+fn a_target_that_is_a_symbolic_link_is_rejected() {
+    let root = project();
+    let outside = TempDir::new().unwrap();
+    let real = outside.path().join("elsewhere.py");
+    fs::write(&real, SOURCE).unwrap();
+    let link = root.path().join("src/scheduling/linked.py");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let mutant = with_canonical_id(Mutant {
+        file: "src/scheduling/linked.py".to_owned(),
+        ..valid_mutant()
+    });
+
+    let error = reject(root.path(), vec![mutant]);
+
+    assert!(
+        matches!(error, ValidationError::SymlinkTarget { .. }),
+        "{error}"
+    );
+}
+
+/// The same escape one level up: the file itself is ordinary, but a directory on
+/// the way to it is a link out of the project. Only resolving the whole path
+/// catches this one.
+#[test]
+fn a_target_reached_through_a_linked_directory_is_rejected() {
+    let root = TempDir::new().unwrap();
+    let outside = TempDir::new().unwrap();
+    fs::create_dir_all(outside.path().join("scheduling")).unwrap();
+    fs::write(outside.path().join("scheduling/overlap.py"), SOURCE).unwrap();
+    std::os::unix::fs::symlink(outside.path(), root.path().join("src")).unwrap();
+
+    let error = reject(root.path(), vec![valid_mutant()]);
+
+    assert!(
+        matches!(error, ValidationError::TargetOutsideProject { .. }),
+        "{error}"
+    );
+}
+
 #[test]
 fn a_span_that_does_not_fit_inside_the_file_is_rejected() {
     let root = project();
@@ -288,9 +334,9 @@ fn a_replacement_with_lf_line_endings_is_accepted() {
         ..valid_mutant()
     });
 
-    let warnings = validate_manifest(&manifest(vec![mutant]), root.path()).unwrap();
+    let verified = validate_manifest(&manifest(vec![mutant]), root.path()).unwrap();
 
-    assert!(warnings.is_empty());
+    assert!(verified.warnings.is_empty());
 }
 
 #[test]
@@ -403,9 +449,9 @@ fn a_coding_cookie_below_the_second_line_is_not_a_declaration() {
         format!("#!/usr/bin/env python\n# nothing to declare\n# -*- coding: latin-1 -*-\n{SOURCE}");
     let root = write_target(source.as_bytes());
 
-    let warnings = validate_manifest(&manifest(vec![mutant_for(&source)]), root.path()).unwrap();
+    let verified = validate_manifest(&manifest(vec![mutant_for(&source)]), root.path()).unwrap();
 
-    assert!(warnings.is_empty());
+    assert!(verified.warnings.is_empty());
 }
 
 /// Only comment lines can declare an encoding, so the same words inside a
@@ -415,18 +461,18 @@ fn the_word_coding_inside_a_string_literal_is_not_a_declaration() {
     let source = format!("label = \"coding: latin-1\"\n{SOURCE}");
     let root = write_target(source.as_bytes());
 
-    let warnings = validate_manifest(&manifest(vec![mutant_for(&source)]), root.path()).unwrap();
+    let verified = validate_manifest(&manifest(vec![mutant_for(&source)]), root.path()).unwrap();
 
-    assert!(warnings.is_empty());
+    assert!(verified.warnings.is_empty());
 }
 
 #[test]
 fn a_coding_cookie_that_spells_utf8_differently_is_accepted() {
     let source = format!("# -*- coding: UTF_8 -*-\n{SOURCE}");
     let root = write_target(source.as_bytes());
-    let warnings = validate_manifest(&manifest(vec![mutant_for(&source)]), root.path()).unwrap();
+    let verified = validate_manifest(&manifest(vec![mutant_for(&source)]), root.path()).unwrap();
     assert!(
-        warnings.is_empty(),
+        verified.warnings.is_empty(),
         "utf-8 spelled with an underscore is still utf-8"
     );
 }
@@ -439,9 +485,9 @@ fn an_oversized_replacement_warns_instead_of_failing() {
         replacement: replacement.clone(),
         ..valid_mutant()
     });
-    let warnings = validate_manifest(&manifest(vec![mutant]), root.path()).unwrap();
+    let verified = validate_manifest(&manifest(vec![mutant]), root.path()).unwrap();
     assert!(matches!(
-        warnings.as_slice(),
+        verified.warnings.as_slice(),
         [ValidationWarning::LargeReplacement { bytes, .. }] if *bytes == replacement.len()
     ));
 }

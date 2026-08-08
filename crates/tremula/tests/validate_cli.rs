@@ -165,35 +165,52 @@ fn an_oversized_replacement_is_reported_without_failing() {
     assert!(advice.contains("10241 bytes"), "{advice}");
 }
 
+/// `--deep` is the one form of validation that needs the project's own Python,
+/// so it fails the way a missing interpreter fails rather than silently skipping
+/// the pack's checks.
 #[test]
-fn the_subcommands_that_do_not_exist_yet_say_so() {
-    for name in ["run", "restore"] {
-        let output = Command::cargo_bin("tremula")
-            .unwrap()
-            .arg(name)
-            .output()
-            .unwrap();
-
-        assert_eq!(output.status.code(), Some(2), "{name}");
-        let complaint = String::from_utf8_lossy(&output.stderr).into_owned();
-        assert!(
-            complaint.contains("is not implemented yet"),
-            "{name}: {complaint}"
-        );
-    }
-}
-
-#[test]
-fn deep_validation_says_it_needs_the_language_pack() {
+fn deep_validation_without_an_interpreter_says_which_one_it_wanted() {
     let root = project();
     let manifest = write_manifest(&root, &manifest_json(&sha256_hex(SOURCE.as_bytes())));
+    let nowhere = root.path().join("no-such-python");
 
-    let output = run_validate(root.path(), &manifest, &["--deep"]);
+    let output = run_validate(
+        root.path(),
+        &manifest,
+        &["--deep", "--python", &nowhere.display().to_string()],
+    );
 
     assert_eq!(output.status.code(), Some(2));
     let complaint = stderr(&output);
     assert!(
-        complaint.contains("requires the Python pack"),
+        complaint.contains(&nowhere.display().to_string()),
         "{complaint}"
     );
+}
+
+/// The real thing: the installed pack is asked about a manifest it can accept.
+#[test]
+fn deep_validation_asks_the_installed_pack_and_accepts_a_valid_manifest() {
+    let interpreter = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(".venv")
+        .join("bin")
+        .join("python");
+    if !interpreter.is_file() {
+        eprintln!(
+            "skipped: no virtual environment at {}",
+            interpreter.display()
+        );
+        return;
+    }
+    let root = project();
+    let manifest = write_manifest(&root, &manifest_json(&sha256_hex(SOURCE.as_bytes())));
+
+    let output = run_validate(
+        root.path(),
+        &manifest,
+        &["--deep", "--python", &interpreter.display().to_string()],
+    );
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
 }
