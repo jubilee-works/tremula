@@ -7,10 +7,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::{fs, os::unix::fs::PermissionsExt, path::Path, path::PathBuf};
+use std::{fs, os::unix::fs::PermissionsExt, path::Path, path::PathBuf, sync::Mutex};
 
 use tempfile::TempDir;
 use tremula::{
+    child::Reaped,
     pack::{self, PackError},
     python_env::PythonEnv,
 };
@@ -174,14 +175,27 @@ fn request(workspace: &Path) -> Request {
 }
 
 fn run(env: &PythonEnv, request: &Request) -> Result<(), PackError> {
+    run_watched(env, request, &|_| {})
+}
+
+/// A run that reports the pack's process to `watch`, the way one holding the
+/// project's lock does.
+fn run_watched(
+    env: &PythonEnv,
+    request: &Request,
+    watch: &dyn Fn(Option<u32>),
+) -> Result<(), PackError> {
     pack::run(
         env,
-        &request.manifest,
-        &request.project,
-        &request.run_dir,
-        &["tests/unit".to_owned()],
-        Some(12.5),
-        false,
+        &pack::RunRequest {
+            manifest: &request.manifest,
+            project_root: &request.project,
+            run_dir: &request.run_dir,
+            tests: &["tests/unit".to_owned()],
+            timeout: Some(12.5),
+            verbose: false,
+        },
+        watch,
     )
 }
 
@@ -302,6 +316,52 @@ fn deep_validation_asks_the_pack_to_validate_and_nothing_more() {
     let passed = arguments(workspace.path());
     assert!(passed.contains(&"validate".to_owned()), "{passed:?}");
     assert!(!passed.contains(&"run".to_owned()), "{passed:?}");
+}
+
+/// Dropping the guard is what every way out of driving a pack goes through, so a
+/// process it is still responsible for must be stopped — and collected, or it would
+/// linger as one nobody ever waits for.
+#[test]
+fn a_pack_process_the_guard_still_holds_is_stopped_when_it_is_dropped() {
+    let mut sleeping = std::process::Command::new("/bin/sleep");
+    let pack = Reaped::new(sleeping.arg("30").spawn().unwrap());
+    let pid = pack.pid().unwrap();
+
+    drop(pack);
+
+    assert!(!is_alive(pid), "process {pid} outlived the guard");
+}
+
+/// A pack that ends on its own is reported while it runs and unreported once it is
+/// gone, which is what a lock naming it depends on.
+#[test]
+fn a_run_reports_the_packs_process_while_it_lasts_and_no_longer() {
+    let workspace = TempDir::new().unwrap();
+    let env = fake_pack(workspace.path(), "exit 0\n");
+    let asked = request(workspace.path());
+    let seen = Mutex::new(Vec::new());
+
+    run_watched(&env, &asked, &|pack| {
+        seen.lock().unwrap().push(pack);
+    })
+    .unwrap();
+
+    let reported = seen.lock().unwrap().clone();
+    assert_eq!(reported.len(), 2, "{reported:?}");
+    assert!(reported[0].is_some(), "{reported:?}");
+    assert_eq!(reported[1], None, "{reported:?}");
+}
+
+/// Whether a process is still there. A collected one is gone outright rather than
+/// left as a zombie, which signalling would still find.
+fn is_alive(pid: u32) -> bool {
+    let Some(pid) = i32::try_from(pid)
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+    else {
+        return false;
+    };
+    rustix::process::test_kill_process(pid).is_ok()
 }
 
 /// The one case with a real pack: the values in the contract's own example are

@@ -36,12 +36,17 @@ reason the next one is safe or the reason it means anything.
 1. **Read and parse the manifest.** Its declared `schema_version` has to be one
    this binary reads. Nothing in the project has been touched yet, so nothing can
    have raced.
-2. **Claim the project.** `.tremula/lock` records the run's identifier and its
-   process id, created exclusively so that two runs cannot both hold it. Mutants
+2. **Claim the project.** `.tremula/lock` records the run's identifier, its
+   process id, and — once the pack is working — the pack's process id too. Mutants
    are applied in place and a project has one source tree, so a second concurrent
-   run would corrupt the first one's files. A lock whose process is gone is taken
-   over, with a warning; a lock whose process cannot be signalled counts as held,
-   because that is what a process belonging to another user looks like.
+   run would corrupt the first one's files. The claim is made by linking the lock
+   to a document already written, so a lock that exists is always complete and can
+   never be read as one nobody holds. A lock whose processes are all gone is taken
+   over, with a warning, one run at a time — reading a lock and replacing it are
+   separate steps, and turns are taken through `.tremula/lock.gate` so that two
+   runs cannot both decide the same lock is abandoned. A lock whose process cannot
+   be signalled counts as held, because that is what a process belonging to
+   another user looks like.
    A manifest with nothing in it takes the lock too: publishing a newest run
    without holding it would redirect a live run's recovery pointer.
 3. **Observe the revision.** `git rev-parse HEAD` and `git status --porcelain`,
@@ -56,20 +61,25 @@ reason the next one is safe or the reason it means anything.
    bytes are what every check is measured against.
 6. **Find the project's Python and negotiate.** The interpreter named on the
    command line, then the active virtual environment, then the project's own
-   `.venv`. It has to have the pack installed, and the pack has to report a
-   contract version this binary speaks, the subcommands a run uses, and at least
-   one check of its own.
+   `.venv`, each resolved to an absolute path where the caller named it — nothing
+   afterwards runs from the caller's directory. It has to have the pack installed,
+   and the pack has to report a contract version this binary speaks, the
+   subcommands a run uses, and at least one check of its own.
 7. **Reserve the run directory, write the snapshot, publish it as `latest`.** The
    snapshot is the bytes from step 5 rather than a second reading of the files.
    Publishing before the pack starts is deliberate: the run a reader needs
    `tremula restore` to find is precisely the one that did not finish.
 8. **Run the pack.** It performs its own preflight, its language checks, the
-   reference run, then applies every mutant and collects the results.
+   reference run, then applies every mutant and collects the results. Its process
+   is named in the lock while it lasts, and no way out of this step leaves it
+   running: a pack that outlived the run would go on editing the files the report
+   describes.
 9. **Read back what it wrote, and check that it belongs.** Both documents have to
-   carry this contract version, this run's identifier, and this pack's name and
-   version. A pack that reports success without leaving a document is a defect in
-   the pack, and is reported as one.
-10. **Judge, write `report.json`, print.** The last line of stdout is
+   carry this contract version, this run's identifier, and this pack's name,
+   version and contract version. A pack that reports success without leaving a
+   document is a defect in the pack, and is reported as one.
+10. **Judge, write `report.json`, print.** The run is stamped as finished here, at
+    the end of its work rather than before it started. The last line of stdout is
     `run_dir=<path>`, absolute, and the process exits with the report's own exit
     code.
 
@@ -78,6 +88,7 @@ reason the next one is safe or the reason it means anything.
 ```
 .tremula/
 ├── lock                       # while a run holds the project
+├── lock.gate                  # whose turn it is to take an abandoned lock over
 └── runs/
     ├── latest -> <run-id>
     └── <run-id>/              # UTC timestamp + the first six hex digits of the manifest's hash
@@ -92,9 +103,9 @@ reason the next one is safe or the reason it means anything.
         └── logs/              # what the pack and the suite said
 ```
 
-A run directory is reserved, never reused: two runs of the same manifest within
-one second would otherwise interleave their documents, so the second gets a name
-of its own.
+A run directory is reserved, never reused: runs of the same manifest within one
+second would otherwise interleave their documents, so each after the first gets a
+suffixed name of its own, up to `-9`.
 
 Only some of these exist for a run that failed early. A run that stopped before
 its manifest was validated has a report and nothing else; one that stopped in the

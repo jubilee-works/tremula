@@ -78,7 +78,8 @@ project, and committing them would also make every later run see a modified
 working tree.
 
 Mutants are applied in place, so a run that is killed outright can leave one in
-your sources. `tremula restore` puts them back from the run's own snapshot.
+your sources. `tremula restore` puts them back from the run's own snapshot, and a
+run that fails with the sources modified prints the exact command for itself.
 
 **A manifest is code you are about to execute.** Every `replacement` runs as part
 of your test suite, so only run manifests you trust.

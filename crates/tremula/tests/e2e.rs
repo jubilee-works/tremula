@@ -23,8 +23,9 @@ use std::{
 use assert_cmd::Command;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
+use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 use tremula::validation::canonical_mutant_id;
-use tremula_contracts::{manifest::Span, report::Report, results::Results};
+use tremula_contracts::{baseline::Baseline, manifest::Span, report::Report, results::Results};
 
 /// One mutation, spelled the way a person would describe it.
 struct Mutation {
@@ -139,6 +140,16 @@ impl Fixture {
         let document = fs::read_to_string(self.run_dir().join("report.json")).unwrap();
         serde_json::from_str(&document).unwrap()
     }
+
+    fn baseline(&self) -> Baseline {
+        let document = fs::read_to_string(self.run_dir().join("baseline.json")).unwrap();
+        serde_json::from_str(&document).unwrap()
+    }
+}
+
+/// A moment as every contract document spells one.
+fn moment(spelling: &str) -> OffsetDateTime {
+    OffsetDateTime::parse(spelling, &Rfc3339).unwrap_or_else(|_| panic!("{spelling}"))
 }
 
 /// The interpreter the pack is installed in. These tests are gated on a feature
@@ -235,6 +246,18 @@ fn a_suite_with_a_gap_in_it_reports_one_kill_and_one_survivor() {
     assert_eq!(report.score.timeout, 0);
     assert_eq!(report.exit_code, 1);
     assert_eq!(report.caveats.len(), 2);
+    // A run is finished when its work is, not when it was set up. The suite ran at
+    // least three times over — once unmutated and once per mutant — so the run
+    // cannot have taken less time than the unmutated one did.
+    let took = moment(&report.run.finished_at) - moment(&report.run.started_at);
+    let baseline = Duration::milliseconds(
+        i64::try_from(fixture.baseline().runner.duration_ms).expect("a duration in milliseconds"),
+    );
+    assert!(took > Duration::ZERO, "the run finished before it started");
+    assert!(
+        took >= baseline,
+        "the run took {took}, its baseline {baseline}"
+    );
     insta::assert_snapshot!(without_the_incidentals(&said));
 }
 
@@ -326,6 +349,12 @@ fn a_mutant_that_makes_the_suite_hang_is_counted_as_a_detection() {
     let report = fixture.report();
     assert_eq!(report.score.timeout, 1);
     assert_eq!(report.score.killed, 1, "a timeout counts towards killed");
+    // The runner is what has to have stopped the suite. tremula's own backstop
+    // against a pack that never returns would produce the same score, so only the
+    // pack's own signal tells the two apart.
+    let results = fixture.results();
+    let runner = results.entries[0].runner.as_ref().unwrap();
+    assert!(runner.timed_out, "{runner:?}");
 }
 
 /// A mutant that stops the module loading is *not* a kill, and the asymmetry is

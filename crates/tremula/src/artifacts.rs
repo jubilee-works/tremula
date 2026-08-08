@@ -83,7 +83,7 @@ impl Artifacts {
         run: &RunDir,
         capabilities: &Capabilities,
     ) -> Result<(), ArtifactError> {
-        let claims: [(&str, &'static str, &str, &str); 6] = [
+        let claims: [(&str, &'static str, &str, &str); 7] = [
             (
                 "baseline.json",
                 "schema version",
@@ -109,6 +109,12 @@ impl Artifacts {
                 "pack version",
                 &self.results.pack.version,
                 &capabilities.version,
+            ),
+            (
+                "results.json",
+                "pack contract version",
+                &self.results.pack.contract_version,
+                &capabilities.contract_version,
             ),
         ];
         for (file, what, found, expected) in claims {

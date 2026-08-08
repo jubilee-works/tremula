@@ -22,7 +22,8 @@ rustix = { version = "1", features = ["process"] }
 assert_cmd = "2"
 insta = "1"
 tempfile = "3"
-time = { version = "0.3", features = ["macros"] }
+# `parsing` is for the tests that read a document's timestamps back.
+time = { version = "0.3", features = ["macros", "parsing"] }
 
 [features]
 # The end-to-end tests need an interpreter with the language pack and its

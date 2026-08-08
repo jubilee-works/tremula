@@ -1,13 +1,16 @@
 //! Driving a language pack over the protocol it publishes.
 //!
-//! Three rules hold for every call. The pack is run as an installed module
+//! Four rules hold for every call. The pack is run as an installed module
 //! (`-m`) through an isolated interpreter (`-I`), so that neither the working
 //! directory nor the environment can put a different `tremula_python` in front
-//! of the one the core negotiated with. Every path handed over is absolute,
+//! of the one the core negotiated with. The paths the pack resolves for itself —
+//! the manifest, the project root, the run directory — are handed over absolute,
 //! because the pack starts subprocesses of its own with working directories of
-//! their own. And the pack's own account of a failure — its last line of stdout —
-//! is the only failure report the core reads, because an execution backend may
-//! discard stderr.
+//! their own; what the caller wrote after `--tests` is passed through exactly as
+//! given, since it is the project's own test runner that interprets it. The
+//! pack's own account of a failure — its last line of stdout — is the only
+//! failure report the core reads, because an execution backend may discard
+//! stderr. And no call leaves a pack process behind, however it ends.
 
 use std::{
     fs,
@@ -22,7 +25,10 @@ use tremula_contracts::{
     pack_error::{PackError as PackErrorDocument, Stage},
 };
 
-use crate::python_env::{PACK_DISTRIBUTION, PythonEnv};
+use crate::{
+    child::Reaped,
+    python_env::{PACK_DISTRIBUTION, PythonEnv},
+};
 
 /// The subcommands a pack has to offer before the core will use it.
 pub const REQUIRED_SUBCOMMANDS: [&str; 3] = ["run", "collect", "validate"];
@@ -162,7 +168,7 @@ fn quote(tail: &[String]) -> String {
 pub fn handshake(env: &PythonEnv) -> Result<Capabilities, PackError> {
     let mut command = pack_command(env);
     command.arg("--capabilities").current_dir(neutral());
-    let transcript = drive(env, command, None, false)?;
+    let transcript = drive(env, command, None, false, &unwatched)?;
     if !transcript.succeeded() {
         return Err(transcript.into_failure(None));
     }
@@ -198,10 +204,34 @@ fn check(capabilities: &Capabilities) -> Result<(), PackError> {
     Ok(())
 }
 
-/// Run every mutant in `manifest` and leave the run's documents in `run_dir`.
+/// What one pack run is asked to do.
+#[derive(Debug)]
+pub struct RunRequest<'a> {
+    /// The manifest of mutants to run, absolute.
+    pub manifest: &'a Path,
+    /// The project the mutants belong to, absolute.
+    pub project_root: &'a Path,
+    /// The run's own directory, absolute.
+    pub run_dir: &'a Path,
+    /// What to hand the project's test runner, exactly as the caller wrote it.
+    pub tests: &'a [String],
+    /// How long one run of the suite may take. The pack derives a limit from the
+    /// baseline when there is none.
+    pub timeout: Option<f64>,
+    /// Print what the pack says while it is saying it.
+    pub verbose: bool,
+}
+
+/// Run every mutant in the request's manifest and leave the run's documents in
+/// its run directory.
 ///
 /// `tests` and `timeout` are passed through untouched: what to collect and how
 /// long a suite may take are the project's business, not the core's.
+///
+/// `watch` is told the pack's process while it runs, and told there is none once
+/// it has been collected. That is what lets a run record the process that is
+/// touching the sources, so a run killed mid-flight does not read as one whose
+/// pack is gone.
 ///
 /// # Errors
 ///
@@ -209,28 +239,24 @@ fn check(capabilities: &Capabilities) -> Result<(), PackError> {
 /// its own, or stops without reporting one.
 pub fn run(
     env: &PythonEnv,
-    manifest: &Path,
-    project_root: &Path,
-    run_dir: &Path,
-    tests: &[String],
-    timeout: Option<f64>,
-    verbose: bool,
+    request: &RunRequest<'_>,
+    watch: &dyn Fn(Option<u32>),
 ) -> Result<(), PackError> {
     let mut command = pack_command(env);
     command
         .arg("run")
-        .args(["--manifest".as_ref(), manifest.as_os_str()])
-        .args(["--project".as_ref(), project_root.as_os_str()])
-        .args(["--out".as_ref(), run_dir.as_os_str()])
-        .current_dir(project_root);
-    for named in tests {
+        .args(["--manifest".as_ref(), request.manifest.as_os_str()])
+        .args(["--project".as_ref(), request.project_root.as_os_str()])
+        .args(["--out".as_ref(), request.run_dir.as_os_str()])
+        .current_dir(request.project_root);
+    for named in request.tests {
         command.args(["--tests", named]);
     }
-    if let Some(seconds) = timeout {
+    if let Some(seconds) = request.timeout {
         command.args(["--timeout".to_owned(), seconds.to_string()]);
     }
-    let log = run_dir.join("logs").join(PACK_LOG);
-    let transcript = drive(env, command, Some(&log), verbose)?;
+    let log = request.run_dir.join("logs").join(PACK_LOG);
+    let transcript = drive(env, command, Some(&log), request.verbose, watch)?;
     if transcript.succeeded() {
         return Ok(());
     }
@@ -254,12 +280,16 @@ pub fn validate_deep(
         .args(["--manifest".as_ref(), manifest.as_os_str()])
         .args(["--project".as_ref(), project_root.as_os_str()])
         .current_dir(project_root);
-    let transcript = drive(env, command, None, false)?;
+    let transcript = drive(env, command, None, false, &unwatched)?;
     if transcript.succeeded() {
         return Ok(());
     }
     Err(transcript.into_failure(None))
 }
+
+/// Nobody is recording the process of a call that belongs to no run: the
+/// handshake and a validation hold no lock to record it in.
+fn unwatched(_pack: Option<u32>) {}
 
 /// How every pack subcommand is invoked.
 fn pack_command(env: &PythonEnv) -> Command {
@@ -322,22 +352,50 @@ fn describe(status: ExitStatus) -> String {
 
 /// Run one pack call, keeping everything it printed.
 ///
+/// Whatever happened, the pack's process is over by the time this returns: it
+/// either finished on its own or was stopped by the guard [`listen`] holds. That
+/// is what makes it safe to tell `watch` there is no pack process any more, and
+/// what keeps a failed call from leaving one behind still editing the sources.
+fn drive(
+    env: &PythonEnv,
+    command: Command,
+    log: Option<&Path>,
+    verbose: bool,
+    watch: &dyn Fn(Option<u32>),
+) -> Result<Transcript, PackError> {
+    let listened = listen(env, command, verbose, watch);
+    watch(None);
+    let transcript = listened?;
+    if let Some(path) = log {
+        // A log nobody could write is not worth failing a finished run over: the
+        // pack's own answer is in hand either way.
+        let mut kept = transcript.lines.join("\n");
+        kept.push('\n');
+        drop(fs::write(path, kept));
+    }
+    Ok(transcript)
+}
+
+/// Start the pack and read it until it stops.
+///
 /// Only stdout is captured, because that is where the pack's protocol lives.
 /// stderr is left alone: the pack promises silence there, and if it breaks that
 /// promise the reader should see it rather than have it filed away.
-fn drive(
+fn listen(
     env: &PythonEnv,
     mut command: Command,
-    log: Option<&Path>,
     verbose: bool,
+    watch: &dyn Fn(Option<u32>),
 ) -> Result<Transcript, PackError> {
     command.stdout(Stdio::piped());
-    let mut child = command.spawn().map_err(|err| PackError::NotStarted {
+    let started = command.spawn().map_err(|err| PackError::NotStarted {
         interpreter: env.interpreter().to_path_buf(),
         reason: err.to_string(),
     })?;
+    let mut pack = Reaped::new(started);
+    watch(pack.pid());
     let mut lines = Vec::new();
-    if let Some(stdout) = child.stdout.take() {
+    if let Some(stdout) = pack.stdout() {
         for line in BufReader::new(stdout).lines() {
             let line = line.map_err(|err| PackError::Unreadable {
                 reason: err.to_string(),
@@ -348,15 +406,8 @@ fn drive(
             lines.push(line);
         }
     }
-    let status = child.wait().map_err(|err| PackError::Unreadable {
+    let status = pack.wait().map_err(|err| PackError::Unreadable {
         reason: err.to_string(),
     })?;
-    if let Some(path) = log {
-        // A log nobody could write is not worth failing a finished run over: the
-        // pack's own answer is in hand either way.
-        let mut transcript = lines.join("\n");
-        transcript.push('\n');
-        drop(fs::write(path, transcript));
-    }
     Ok(Transcript { status, lines })
 }

@@ -3,6 +3,7 @@
 //! knows nothing about any execution backend.
 
 pub mod artifacts;
+pub mod child;
 pub mod console;
 pub mod decision;
 pub mod orchestrate;

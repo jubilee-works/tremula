@@ -100,18 +100,21 @@ pub struct ValidateArgs {
     pub deep: bool,
 }
 
-/// A time limit, refused unless it is a positive number of seconds. Zero would
-/// be obeyed exactly: every suite killed as it started, every mutant a timeout,
-/// and a report that blamed the code for it.
+/// A time limit, refused unless it is a real number of seconds above zero.
+///
+/// Zero would be obeyed exactly: every suite killed as it started, every mutant a
+/// timeout, and a report that blamed the code for it. `inf` and `nan` parse as
+/// numbers and are worse, because a run given one waits on a hung suite for as
+/// long as the reader lets it while looking like a run with a limit.
 fn positive_seconds(spelling: &str) -> Result<f64, String> {
     let seconds: f64 = spelling
         .parse()
         .map_err(|_| format!("`{spelling}` is not a number of seconds"))?;
-    if seconds > 0.0 {
+    if seconds.is_finite() && seconds > 0.0 {
         return Ok(seconds);
     }
     Err(format!(
-        "a time limit has to be more than zero seconds, not `{spelling}`"
+        "a time limit has to be a definite number of seconds more than zero, not `{spelling}`"
     ))
 }
 
@@ -215,7 +218,7 @@ fn attempt(args: &RunArgs) -> Result<ExitCode, RunFailure> {
     if let Some(previous) = lock.reclaimed_from() {
         eprintln!("warning: took over the lock left by {previous}, which is no longer running");
     }
-    let observed = provenance::observe(&args.project);
+    let observed = provenance::observe(&args.project, started);
     // Absolute from here on: the pack is handed the run directory and starts
     // subprocesses with working directories of their own, so a relative path
     // would have it writing somewhere else entirely.
@@ -226,7 +229,7 @@ fn attempt(args: &RunArgs) -> Result<ExitCode, RunFailure> {
             .unwrap_or_else(|| args.project.join(TREMULA_DIR).join(RUNS_DIR)),
     )?;
     if manifest.mutants.is_empty() {
-        return nothing_to_test(args, &out_parent, &id, started, &observed);
+        return nothing_to_test(args, &out_parent, &id, &observed);
     }
     let verified = validate_manifest(&manifest, &args.project)?;
     warn(&verified);
@@ -234,8 +237,7 @@ fn attempt(args: &RunArgs) -> Result<ExitCode, RunFailure> {
     env.verify_pack()?;
     let capabilities = pack::handshake(&env)?;
     let run = reserve(&out_parent, &id, &verified)?;
-    let recorded = meta(args, &run, started, &observed);
-    let judged = execute(args, &env, &run, &manifest, &capabilities, recorded)?;
+    let judged = execute(args, &env, &run, &manifest, &capabilities, &lock, &observed)?;
     drop(lock);
     Ok(judged)
 }
@@ -247,22 +249,29 @@ fn execute(
     run: &RunDir,
     manifest: &Manifest,
     capabilities: &Capabilities,
-    recorded: RunMeta,
+    lock: &Lock,
+    observed: &Observed,
 ) -> Result<ExitCode, RunFailure> {
-    let outcome = pack::run(
-        env,
-        &absolute(&args.manifest)?,
-        &absolute(&args.project)?,
-        run.path(),
-        &args.tests,
-        args.timeout,
-        args.verbose,
-    );
+    let request = pack::RunRequest {
+        manifest: &absolute(&args.manifest)?,
+        project_root: &absolute(&args.project)?,
+        run_dir: run.path(),
+        tests: &args.tests,
+        timeout: args.timeout,
+        verbose: args.verbose,
+    };
+    // The pack is what patches the sources, and it can outlive this process, so
+    // the lock names it for as long as it is running.
+    let outcome = pack::run(env, &request, &|pack| lock.note_pack(pack));
     if let Err(failure) = outcome {
-        say_whether_the_sources_survived(&args.project, manifest);
+        say_whether_the_sources_survived(args, manifest, run);
         return Err(failure.into());
     }
     let left = Artifacts::load(run, capabilities)?;
+    // Recorded now rather than before the pack ran: the run is stamped as finished
+    // at the moment it is described, and describing it any earlier would have every
+    // run report itself as instantaneous.
+    let recorded = meta(args, run, observed);
     let report = report::build_report(manifest, &left.results, &left.baseline, recorded)?;
     write_json(&run.path().join("report.json"), &report)?;
     println!("{}", console::render(&report, Some(&left.baseline)));
@@ -278,14 +287,13 @@ fn nothing_to_test(
     args: &RunArgs,
     out_parent: &Path,
     id: &RunId,
-    started: OffsetDateTime,
     observed: &Observed,
 ) -> Result<ExitCode, RunFailure> {
     let run = run_dir::create(out_parent, id).map_err(|err| RunFailure::RunDirUnusable {
         parent: out_parent.to_path_buf(),
         reason: err.to_string(),
     })?;
-    let report = report::build_empty_report(meta(args, &run, started, observed));
+    let report = report::build_empty_report(meta(args, &run, observed));
     write_json(&run.path().join("report.json"), &report)?;
     publish(out_parent, &run)?;
     println!("{}", console::render(&report, None));
@@ -339,13 +347,8 @@ fn announce(run: &RunDir) {
 }
 
 /// Everything the report records about the run itself.
-fn meta(args: &RunArgs, run: &RunDir, started: OffsetDateTime, observed: &Observed) -> RunMeta {
-    provenance::run_meta(
-        run.run_id(),
-        &args.project.display().to_string(),
-        started,
-        observed,
-    )
+fn meta(args: &RunArgs, run: &RunDir, observed: &Observed) -> RunMeta {
+    provenance::run_meta(run.run_id(), &args.project.display().to_string(), observed)
 }
 
 /// Say whether a failed run left the sources as it found them.
@@ -353,17 +356,23 @@ fn meta(args: &RunArgs, run: &RunDir, started: OffsetDateTime, observed: &Observ
 /// tremula does not put them back on its own — restoring is a command the reader
 /// runs, so that a run which failed for a reason worth inspecting can be
 /// inspected in the state it failed in. What it must not do is leave the reader
-/// guessing, so the files are compared against what the manifest expected.
-fn say_whether_the_sources_survived(project_root: &Path, manifest: &Manifest) {
+/// guessing, so the files are compared against what the manifest expected, and
+/// the command is spelled out for this run: the defaults it would fall back to
+/// are not the ones this run used.
+fn say_whether_the_sources_survived(args: &RunArgs, manifest: &Manifest, run: &RunDir) {
     let intact = manifest.mutants.iter().all(|mutant| {
-        fs::read(project_root.join(&mutant.file))
+        fs::read(args.project.join(&mutant.file))
             .is_ok_and(|bytes| sha256_hex(&bytes) == mutant.base_file_sha256)
     });
     if intact {
         eprintln!("note: your source files are intact");
-    } else {
-        eprintln!("note: source files were left modified — run `tremula restore` to put them back");
+        return;
     }
+    eprintln!(
+        "note: source files were left modified — run `tremula restore --project {} --run {}` to put them back",
+        args.project.display(),
+        run.path().display()
+    );
 }
 
 /// Put a document back where machines will look for it, by renaming a finished

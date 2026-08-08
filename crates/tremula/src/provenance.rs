@@ -12,9 +12,11 @@ use tremula_contracts::report::RunMeta;
 
 use crate::{decision::DECISION_RULES_VERSION, run_dir::TREMULA_DIR};
 
-/// What the project's sources were at when the run started.
-#[derive(Debug, Default)]
+/// What the run found when it started, including when that was.
+#[derive(Debug)]
 pub struct Observed {
+    /// The moment the run began, before it had read anything.
+    pub started: OffsetDateTime,
     /// The revision the project was at, when it has one.
     pub revision: Option<String>,
     /// Whether the working tree had changes of its own.
@@ -27,9 +29,13 @@ pub struct Observed {
 /// directory is created inside the project, and counting it would report every
 /// clean project as modified.
 #[must_use]
-pub fn observe(project_root: &Path) -> Observed {
+pub fn observe(project_root: &Path, started: OffsetDateTime) -> Observed {
     let Some(revision) = git(project_root, &["rev-parse", "HEAD"]) else {
-        return Observed::default();
+        return Observed {
+            started,
+            revision: None,
+            dirty: false,
+        };
     };
     let dirty = git(
         project_root,
@@ -43,6 +49,7 @@ pub fn observe(project_root: &Path) -> Observed {
     )
     .is_some_and(|changes| !changes.is_empty());
     Observed {
+        started,
         revision: Some(revision),
         dirty,
     }
@@ -66,13 +73,12 @@ fn git(project_root: &Path, arguments: &[&str]) -> Option<String> {
 ///
 /// `project` is the root as the caller spelled it, which is what a reader
 /// recognises and what makes the console line about it worth printing.
+///
+/// The run is stamped as finished at the moment this is called, so it has to be
+/// called once the work is: a reader who compares the two stamps is asking how
+/// long the run took.
 #[must_use]
-pub fn run_meta(
-    run_id: &str,
-    project: &str,
-    started: OffsetDateTime,
-    observed: &Observed,
-) -> RunMeta {
+pub fn run_meta(run_id: &str, project: &str, observed: &Observed) -> RunMeta {
     RunMeta {
         run_id: run_id.to_owned(),
         tremula_version: env!("CARGO_PKG_VERSION").to_owned(),
@@ -80,7 +86,7 @@ pub fn run_meta(
         project: project.to_owned(),
         observed_revision: observed.revision.clone(),
         dirty: observed.dirty,
-        started_at: timestamp(started),
+        started_at: timestamp(observed.started),
         finished_at: timestamp(OffsetDateTime::now_utc()),
     }
 }

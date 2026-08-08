@@ -1,0 +1,12 @@
+# What tremula accepts from its dependencies, checked by `cargo deny check`.
+#
+# Only the licence allowlist is stated here. Advisories, banned crates and
+# sources are left at cargo-deny's own defaults, which already refuse a crate
+# with a known vulnerability or one pulled from a registry nobody named.
+
+[licenses]
+# Every licence the dependency graph actually uses. A crate offering a choice —
+# `Unlicense OR MIT`, say — is accepted through whichever of these it offers, so
+# the list stays as short as the graph allows: nothing is allowed here that no
+# dependency needs.
+allow = ["Apache-2.0", "MIT", "Unicode-3.0"]

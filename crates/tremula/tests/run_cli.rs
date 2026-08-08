@@ -31,6 +31,10 @@ const REPLACEMENT: &str = "start <= other.end";
 const PACK_NAME: &str = "tremula-python";
 const PACK_VERSION: &str = "0.1.0";
 
+/// The contract version the handshake below reports, which the documents a run
+/// judges have to agree with.
+const CONTRACT_VERSION: &str = "0.1";
+
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -82,11 +86,18 @@ impl Workspace {
     /// whatever `run_id` evaluates to in the shell — the run's real name, or
     /// another run's.
     fn write_finishing_pack(&self, run_id: &str) -> &Self {
+        self.write_finishing_pack_speaking(run_id, CONTRACT_VERSION)
+    }
+
+    /// The same, with the contract version the results claim the pack implements
+    /// as a parameter: a pack swapped for another between the handshake and the
+    /// work is what makes it differ from what the handshake said.
+    fn write_finishing_pack_speaking(&self, run_id: &str, contract: &str) -> &Self {
         let ids = mutant_ids(2);
         let body = format!(
             "run_id={run_id}\ncat > \"$out/baseline.json\" <<DOCUMENT\n{}\nDOCUMENT\ncat > \"$out/results.json\" <<DOCUMENT\n{}\nDOCUMENT\nexit 0",
             baseline_json("$run_id"),
-            results_json("$run_id", &ids)
+            results_json("$run_id", &ids, contract)
         );
         self.write_pack(&body)
     }
@@ -114,7 +125,7 @@ impl Workspace {
 
 fn capabilities() -> String {
     format!(
-        r#"{{"name":"{PACK_NAME}","version":"{PACK_VERSION}","contract_version":"0.1","subcommands":["run","collect","validate"],"validate_checks":["parses"]}}"#
+        r#"{{"name":"{PACK_NAME}","version":"{PACK_VERSION}","contract_version":"{CONTRACT_VERSION}","subcommands":["run","collect","validate"],"validate_checks":["parses"]}}"#
     )
 }
 
@@ -202,7 +213,7 @@ fn baseline_json(run_id: &str) -> String {
 }
 
 /// One mutant caught, one not — the shape every report has to be able to carry.
-fn results_json(run_id: &str, ids: &[String]) -> String {
+fn results_json(run_id: &str, ids: &[String], contract: &str) -> String {
     let entries: Vec<serde_json::Value> = ids
         .iter()
         .enumerate()
@@ -223,7 +234,7 @@ fn results_json(run_id: &str, ids: &[String]) -> String {
     serde_json::json!({
         "schema_version": "0.1",
         "run_id": run_id,
-        "pack": { "name": PACK_NAME, "version": PACK_VERSION, "contract_version": "0.1" },
+        "pack": { "name": PACK_NAME, "version": PACK_VERSION, "contract_version": contract },
         "entries": entries,
     })
     .to_string()
@@ -351,8 +362,10 @@ fn a_pack_that_reports_a_failure_says_what_it_means_and_whether_the_sources_surv
     );
 }
 
-/// A pack that mutated a file and died leaves the reader with a modified tree,
-/// so the run says so and names the command that undoes it.
+/// A pack that mutated a file and died leaves the reader with a modified tree, so
+/// the run says so and names the command that undoes it — this run's command, not
+/// the one whose defaults happen to match. A project or an output directory the
+/// reader chose is exactly what `tremula restore` on its own would fail to find.
 #[test]
 fn a_failed_run_that_left_a_file_mutated_names_the_command_that_undoes_it() {
     let workspace = Workspace::new();
@@ -366,6 +379,39 @@ fn a_failed_run_that_left_a_file_mutated_names_the_command_that_undoes_it() {
     assert_eq!(output.status.code(), Some(2));
     let complaint = stderr(&output);
     assert!(complaint.contains("tremula restore"), "{complaint}");
+    assert!(
+        complaint.contains(&format!("--project {}", workspace.project().display())),
+        "{complaint}"
+    );
+    assert_eq!(
+        fs::canonicalize(run_named_in(&complaint)).unwrap(),
+        workspace.run_dir()
+    );
+}
+
+/// The run directory a message tells the reader to restore from.
+fn run_named_in(complaint: &str) -> &str {
+    let (_, after) = complaint.split_once("--run ").expect(complaint);
+    let (path, _) = after.split_once('`').expect(complaint);
+    path
+}
+
+/// A pack that answers the handshake and then writes documents claiming another
+/// contract version is a pack that was swapped out mid-run. Judging what it left
+/// would mean reading a document by rules it was not written to.
+#[test]
+fn documents_from_a_pack_speaking_another_contract_version_are_refused() {
+    let workspace = Workspace::new();
+    workspace
+        .write_manifest(2)
+        .write_finishing_pack_speaking("$(basename \"$out\")", "9.9");
+
+    let output = workspace.run(&[]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let complaint = stderr(&output);
+    assert!(complaint.contains("pack contract version"), "{complaint}");
+    assert!(complaint.contains("9.9"), "{complaint}");
 }
 
 #[test]
@@ -439,14 +485,24 @@ fn a_manifest_from_another_contract_version_is_refused_with_both_versions() {
     assert!(complaint.contains("0.1"), "{complaint}");
 }
 
+/// Zero would be obeyed exactly — every suite killed as it started, every mutant
+/// a timeout, and a report that blamed the code for it. A limit that is not a
+/// number at all is worse: `inf` parses, and a run given it would wait for a hung
+/// suite forever while looking like a run with a time limit.
 #[test]
 fn a_time_limit_that_is_not_a_positive_number_of_seconds_is_refused() {
     let workspace = Workspace::new();
     workspace.write_manifest(0).write_pack("exit 0");
 
-    let output = workspace.run(&["--timeout", "0"]);
+    for spelling in ["0", "inf", "nan"] {
+        let output = workspace.run(&["--timeout", spelling]);
 
-    assert_eq!(output.status.code(), Some(2));
-    let complaint = stderr(&output);
-    assert!(complaint.contains("more than zero seconds"), "{complaint}");
+        assert_eq!(output.status.code(), Some(2), "{spelling}");
+        let complaint = stderr(&output);
+        assert!(
+            complaint.contains("more than zero"),
+            "{spelling}: {complaint}"
+        );
+        assert!(complaint.contains(spelling), "{spelling}: {complaint}");
+    }
 }

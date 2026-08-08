@@ -6,6 +6,12 @@
 //! environment that is active, then the one the project keeps beside its
 //! sources. tremula's own interpreter is never a candidate — the pack has to be
 //! installed alongside the project's test suite to be able to run it.
+//!
+//! Whichever candidate wins is resolved to an absolute path as it is found, while
+//! the directory the caller was standing in still means something. Every later
+//! use of it runs from somewhere else: the pack is probed from a directory
+//! belonging to no project, and the pack itself starts subprocesses with working
+//! directories of their own.
 
 use std::{
     path::{Path, PathBuf},
@@ -71,6 +77,14 @@ pub enum EnvError {
         /// The interpreter that has no pack.
         interpreter: PathBuf,
         /// What the interpreter said when it tried.
+        reason: String,
+    },
+    /// A candidate could not be resolved against the caller's directory.
+    #[error("cannot resolve `{}`: {reason}; check the path and try again", path.display())]
+    Unresolvable {
+        /// The path that could not be resolved.
+        path: PathBuf,
+        /// What the operating system reported.
         reason: String,
     },
     /// The pack is installed but reported no version.
@@ -183,12 +197,12 @@ fn last_line(stderr: &[u8]) -> String {
 /// Find the interpreter to run the pack through.
 ///
 /// The order is `explicit`, then the active virtual environment, then the
-/// project's own `.venv`.
+/// project's own `.venv`. What comes back is absolute either way.
 ///
 /// # Errors
 ///
-/// Returns [`EnvError`] when `explicit` names nothing, or when no candidate
-/// exists.
+/// Returns [`EnvError`] when `explicit` names nothing, when a path cannot be
+/// resolved, or when no candidate exists.
 pub fn discover(explicit: Option<&Path>, project_root: &Path) -> Result<PythonEnv, EnvError> {
     let active = std::env::var_os("VIRTUAL_ENV").map(PathBuf::from);
     discover_from(explicit, active.as_deref(), project_root)
@@ -202,26 +216,27 @@ pub fn discover(explicit: Option<&Path>, project_root: &Path) -> Result<PythonEn
 ///
 /// # Errors
 ///
-/// Returns [`EnvError`] when `explicit` names nothing, or when no candidate
-/// exists.
+/// Returns [`EnvError`] when `explicit` names nothing, when a path cannot be
+/// resolved, or when no candidate exists.
 pub fn discover_from(
     explicit: Option<&Path>,
     active_virtualenv: Option<&Path>,
     project_root: &Path,
 ) -> Result<PythonEnv, EnvError> {
     if let Some(named) = explicit {
+        let named = absolute(named)?;
         if named.is_file() {
             return Ok(PythonEnv::at(named));
         }
-        return Err(EnvError::InterpreterMissing {
-            path: named.to_path_buf(),
-        });
+        return Err(EnvError::InterpreterMissing { path: named });
     }
     let mut candidates = Vec::with_capacity(2);
     if let Some(active) = active_virtualenv {
-        candidates.push(interpreter_in(active));
+        candidates.push(interpreter_in(&absolute(active)?));
     }
-    candidates.push(interpreter_in(&project_root.join(PROJECT_VENV)));
+    // The project root is resolved before the environment beside it is named, so
+    // that a project spelled `.` does not produce a candidate spelled `.venv`.
+    candidates.push(interpreter_in(&absolute(project_root)?.join(PROJECT_VENV)));
     for candidate in &candidates {
         if candidate.is_file() {
             return Ok(PythonEnv::at(candidate));
@@ -233,4 +248,17 @@ pub fn discover_from(
 /// Where a virtual environment keeps its interpreter.
 fn interpreter_in(virtualenv: &Path) -> PathBuf {
     virtualenv.join("bin").join("python")
+}
+
+/// A path that still means the same directory once the core has left the one the
+/// caller was standing in.
+///
+/// Resolved without asking the filesystem: a candidate is named before anyone
+/// knows whether it exists, and saying which path was looked for is most of what
+/// the message about not finding one is for.
+fn absolute(path: &Path) -> Result<PathBuf, EnvError> {
+    std::path::absolute(path).map_err(|err| EnvError::Unresolvable {
+        path: path.to_path_buf(),
+        reason: err.to_string(),
+    })
 }
