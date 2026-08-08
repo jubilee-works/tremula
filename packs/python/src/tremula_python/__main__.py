@@ -1,0 +1,236 @@
+"""The pack's entry point: parse a command line, print one document, exit.
+
+The core runs this module as `{python} -m tremula_python <subcommand>` and reads
+the result off stdout. Two rules follow from that and are enforced here rather
+than in every stage:
+
+* **Nothing goes to stderr.** An execution backend may discard it, so
+  diagnostics and failures alike are printed to stdout, and the last line is
+  reserved for the machine-readable document.
+* **Every failure is a `pack-error` document with exit 2.** Diagnosed failures
+  arrive as `PackFailure`; anything else is rendered through the same channel as
+  `unexpected_error`, because a traceback would leave the core nothing to read.
+
+The work itself lives in the stage modules. This layer routes to them.
+"""
+
+import argparse
+import sys
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import NoReturn, cast
+
+from tremula_python import (
+    baseline,
+    capabilities,
+    collect,
+    engine,
+    plan_session,
+    preflight,
+)
+from tremula_python.contracts import Manifest, Stage
+from tremula_python.errors import PackFailure, failures_as, unexpected
+from tremula_python.run_layout import RunLayout
+
+EXIT_FAILURE = 2
+"""Every failure reports the same code; the document says which failure it was."""
+
+INVALID_ARGUMENTS = "invalid_arguments"
+"""Code for a command line this pack cannot act on."""
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run one subcommand and return the process exit code.
+
+    `Exception` is caught, not `BaseException`: `--help` finishes by raising
+    `SystemExit(0)`, and an interrupt should stay an interrupt.
+    """
+    try:
+        return _dispatch(argv)
+    except PackFailure as failure:
+        return _report(failure)
+    except Exception as error:
+        # Nothing has told us how far the pack got, and preflight is the only
+        # honest answer: no stage announced itself before this escaped.
+        return _report(unexpected(Stage.PREFLIGHT, error))
+
+
+def _report(failure: PackFailure) -> int:
+    """Print a failure as the last line of stdout."""
+    print(failure.document.model_dump_json())
+    return EXIT_FAILURE
+
+
+def _dispatch(argv: Sequence[str] | None) -> int:
+    """Parse the command line and hand off to the subcommand it names."""
+    options = _parser().parse_args(argv)
+    if options.capabilities:
+        print(capabilities.build().model_dump_json())
+        return 0
+    handler: object = getattr(options, "handler", None)
+    if handler is None:
+        raise PackFailure(
+            Stage.PREFLIGHT,
+            INVALID_ARGUMENTS,
+            "no subcommand given; run one of "
+            + ", ".join(capabilities.SUBCOMMANDS)
+            + ", or --capabilities to see what this pack supports",
+        )
+    return cast("_Handler", handler)(options)
+
+
+def _validate(options: argparse.Namespace) -> int:
+    """Check a manifest's language rules, and nothing else.
+
+    The neutral checks — the file's bytes, its hash, the span's arithmetic — are
+    the core's, and reading the manifest through the contract model doubles as
+    schema validation here.
+    """
+    manifest_path: Path = options.manifest
+    project_root: Path = options.project
+    with failures_as(Stage.VALIDATE):
+        manifest = Manifest.model_validate_json(manifest_path.read_bytes())
+        preflight.validate_language(manifest, project_root)
+    return 0
+
+
+def _run(options: argparse.Namespace) -> int:
+    """Take a manifest all the way to a results document.
+
+    The order is forced, not chosen. The environment is checked before anything is
+    built, the language rules before a session exists, and the baseline before the
+    session is planned — both because a suite that cannot pass makes everything
+    after it meaningless, and because the run's own time limit is derived from how
+    long the baseline took.
+
+    Each step reports its own stage, so a failure says how far the run got. The
+    session survives every failure after it is created, which is what lets
+    `collect` finish the job later.
+    """
+    manifest_path: Path = options.manifest
+    project_root: Path = options.project
+    tests: list[str] = options.tests or []
+    explicit: float | None = options.timeout
+    layout = RunLayout.at(options.out)
+    layout.prepare()
+
+    with failures_as(Stage.PREFLIGHT):
+        preflight.check_environment()
+    with failures_as(Stage.VALIDATE):
+        manifest_copy = manifest_path.read_text(encoding="utf-8")
+        manifest = Manifest.model_validate_json(manifest_copy)
+        preflight.validate_language(manifest, project_root)
+    with failures_as(Stage.BASELINE):
+        reference = baseline.run_baseline(
+            project_root, tests, explicit or baseline.DEFAULT_TIMEOUT_SECONDS, layout
+        )
+    with failures_as(Stage.PLAN):
+        timeout = plan_session.effective_timeout(reference, explicit)
+        plan = plan_session.build_plan(manifest, project_root, layout, tests, timeout)
+        plan.write(layout, manifest_copy)
+        engine.init_session(layout, project_root)
+        engine.filter_jobs(layout.session, manifest)
+    with failures_as(Stage.EXECUTE):
+        engine.execute(layout, project_root)
+    with failures_as(Stage.COLLECT):
+        collect.collect(layout.directory)
+    return 0
+
+
+def _collect(options: argparse.Namespace) -> int:
+    """Rebuild a run's results from its directory, executing nothing."""
+    with failures_as(Stage.COLLECT):
+        collect.collect(options.out)
+    return 0
+
+
+_Handler = Callable[[argparse.Namespace], int]
+"""What a subcommand does: read its options, do the work, return an exit code."""
+
+
+class _Parser(argparse.ArgumentParser):
+    """An argument parser that reports through the pack's error channel.
+
+    argparse's own failure path writes usage to stderr and exits, which breaks
+    both output rules at once.
+    """
+
+    def error(self, message: str) -> NoReturn:
+        """Turn a rejected command line into a reportable failure."""
+        raise PackFailure(Stage.PREFLIGHT, INVALID_ARGUMENTS, message)
+
+
+def _parser() -> _Parser:
+    """The pack's command line."""
+    parser = _Parser(
+        prog="python -m tremula_python",
+        description="Run mutants from a tremula manifest against a Python project.",
+    )
+    parser.add_argument(
+        "--capabilities",
+        action="store_true",
+        help="print this pack's capabilities document and exit",
+    )
+    # `metavar` keeps the usage line readable, and subparsers inherit this class
+    # so their own rejections travel the same channel.
+    subcommands = parser.add_subparsers(dest="subcommand", metavar="SUBCOMMAND")
+
+    validate = subcommands.add_parser(
+        "validate", help="check the manifest's language rules without running anything"
+    )
+    _add_manifest_options(validate)
+    validate.set_defaults(handler=_validate)
+
+    run = subcommands.add_parser("run", help="apply every mutant and collect the results")
+    _add_manifest_options(run)
+    _add_run_directory_option(run)
+    run.add_argument(
+        "--tests",
+        action="append",
+        metavar="PATH",
+        help="passed straight to pytest; repeat for more than one, omit for the "
+        "project's own default collection",
+    )
+    run.add_argument(
+        "--timeout",
+        type=float,
+        metavar="SECONDS",
+        help="time limit for each suite run; derived from the baseline if omitted",
+    )
+    run.set_defaults(handler=_run)
+
+    collect_again = subcommands.add_parser(
+        "collect", help="rebuild the results of a finished or interrupted run"
+    )
+    _add_run_directory_option(collect_again)
+    collect_again.set_defaults(handler=_collect)
+    return parser
+
+
+def _add_run_directory_option(parser: argparse.ArgumentParser) -> None:
+    """The run directory, whose name is the run's identifier."""
+    parser.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        metavar="DIR",
+        help="the run directory: its basename is the run identifier",
+    )
+
+
+def _add_manifest_options(parser: argparse.ArgumentParser) -> None:
+    """The two options every subcommand that reads a manifest takes."""
+    parser.add_argument(
+        "--manifest", type=Path, required=True, metavar="PATH", help="manifest to work from"
+    )
+    parser.add_argument(
+        "--project",
+        type=Path,
+        required=True,
+        metavar="DIR",
+        help="project root the manifest's paths are relative to",
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -109,6 +109,12 @@ fn messages_about_the_mutation() -> Vec<(ValidationError, Vec<&'static str>)> {
             vec!["identical to the original", "must change the code"],
         ),
         (
+            ValidationError::CarriageReturnInReplacement {
+                mutant_id: id.clone(),
+            },
+            vec!["carriage return", "LF-only line endings"],
+        ),
+        (
             ValidationError::IdMismatch {
                 mutant_id: id.clone(),
                 expected: "beef".to_owned(),

@@ -41,11 +41,21 @@ from tremula_python.positions import (
     significant_children,
 )
 
-OPERATOR_NAME = "spec-mutation"
-"""The operator's name within this provider.
+PROVIDER_NAME = "tremula"
+"""The provider's name, which is the entry point's name in the pack's metadata.
 
-Cosmic Ray addresses it as `tremula/spec-mutation`: the entry-point name of the
-provider, a slash, and this name.
+Changing it here changes nothing on its own: the two spellings have to agree, and
+`preflight` fails the run when Cosmic Ray cannot resolve the composed name.
+"""
+
+OPERATOR_NAME = "spec-mutation"
+"""The operator's name within this provider."""
+
+FULL_OPERATOR_NAME = f"{PROVIDER_NAME}/{OPERATOR_NAME}"
+"""How Cosmic Ray addresses the operator: provider name, a slash, operator name.
+
+This is the spelling that goes in a session's TOML keys and comes back out of the
+work-db, so it is also what a job is matched against when results are collected.
 """
 
 
@@ -126,7 +136,7 @@ class TremulaOperator(Operator):
                 that quietly lost something.
         """
         del index
-        source = _shaped_like_the_span(self.replacement, self.original)
+        source = shaped_like_the_span(self.replacement, self.original)
         statements = significant_children(parse_source(source))
         if not statements:
             return None
@@ -177,7 +187,7 @@ def _is_redundant_root(node: ParsoNode) -> bool:
     )
 
 
-def _shaped_like_the_span(replacement: str, original: str) -> str:
+def shaped_like_the_span(replacement: str, original: str) -> str:
     """The exact text to parse so the replacement's shape matches the span's.
 
     parso decides whether to wrap a statement in `simple_stmt` by whether the
@@ -187,6 +197,12 @@ def _shaped_like_the_span(replacement: str, original: str) -> str:
     needs the opposite: without one, the statement on the next line is spliced
     onto this one — `x = 2y = 2`. Either way both spellings of a replacement
     produce the same file.
+
+    Public because that last sentence is a promise something else has to keep:
+    the session planner predicts each mutated file's hash, and predicting it by
+    splicing the raw replacement into the span would disagree with what the
+    operator writes whenever the two differ by a newline — which would report a
+    perfectly good mutant as a backend error.
     """
     normalized = normalize_replacement(replacement)
     if normalized and original.endswith("\n"):

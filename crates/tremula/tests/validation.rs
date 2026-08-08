@@ -258,6 +258,41 @@ fn a_replacement_identical_to_the_original_is_rejected() {
     ));
 }
 
+/// A carriage return has to be refused here, because nothing downstream can.
+/// The Python pack's round-trip check cannot see one — its parser keeps a `\r`
+/// as ordinary text — while the backend reads and writes source with universal
+/// newline translation and would turn it into a `\n` on the way out.
+#[test]
+fn a_replacement_containing_a_carriage_return_is_rejected() {
+    for spelling in ["x = 2\r\n", "\r", "start <= other.end\r", "a\rb"] {
+        let root = project();
+        let mutant = with_canonical_id(Mutant {
+            replacement: spelling.to_owned(),
+            ..valid_mutant()
+        });
+
+        let error = reject(root.path(), vec![mutant]);
+
+        assert!(
+            matches!(error, ValidationError::CarriageReturnInReplacement { .. }),
+            "{spelling:?} was not rejected: {error}"
+        );
+    }
+}
+
+#[test]
+fn a_replacement_with_lf_line_endings_is_accepted() {
+    let root = project();
+    let mutant = with_canonical_id(Mutant {
+        replacement: "if start:\n        return other.end".to_owned(),
+        ..valid_mutant()
+    });
+
+    let warnings = validate_manifest(&manifest(vec![mutant]), root.path()).unwrap();
+
+    assert!(warnings.is_empty());
+}
+
 #[test]
 fn an_identifier_that_is_not_the_canonical_derivation_is_rejected() {
     let root = project();

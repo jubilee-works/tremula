@@ -54,6 +54,12 @@ than handled because tooling that reads source with universal newline
 translation sees different bytes than the manifest measured, so byte spans drift
 by one per preceding line and multi-line originals can never match.
 
+The same rule applies to `replacement`: a carriage return anywhere in it is
+rejected. This one is checked here rather than left to a language pack, because
+a parser treats `\r` as ordinary text and cannot notice it — while a backend
+that writes source with newline translation turns it into `\n`, so the mutation
+applied would not be the mutation described.
+
 An empty `mutants` list is a valid manifest and means "nothing to test".
 
 ## Mutant identifiers

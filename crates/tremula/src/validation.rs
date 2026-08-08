@@ -120,6 +120,14 @@ pub enum ValidationError {
         /// End offset as written in the manifest.
         end: u64,
     },
+    /// The replacement carries a carriage return.
+    #[error(
+        "mutant {mutant_id}: replacement contains a carriage return; use LF-only line endings in replacements"
+    )]
+    CarriageReturnInReplacement {
+        /// The mutant whose replacement is not LF-only.
+        mutant_id: String,
+    },
     /// The bytes at the span differ from `original`.
     #[error(
         "mutant {mutant_id}: the bytes at the span do not match `original`; regenerate the manifest against the current sources"
@@ -223,6 +231,7 @@ pub fn validate_manifest(
         let bytes = read_target(mutant, &project_root.join(relative))?;
         check_encoding(mutant, &bytes)?;
         check_hash(mutant, &bytes)?;
+        check_replacement_line_endings(mutant)?;
         check_span(mutant, &bytes)?;
         check_replacement(mutant)?;
         check_id(mutant)?;
@@ -349,6 +358,22 @@ fn declared_encoding(line: &str) -> Option<String> {
         return None;
     }
     Some(name.to_ascii_lowercase().replace(['-', '_'], ""))
+}
+
+/// Hold replacements to the same rule as the files they go into: LF only.
+///
+/// This one cannot be delegated to a language pack. A parser keeps a `\r` as
+/// ordinary text, so a replacement carrying one round-trips through every check
+/// a pack can make — and then the backend, which reads and writes source with
+/// universal newline translation, writes it out as a `\n`. The mutation applied
+/// would not be the mutation described.
+fn check_replacement_line_endings(mutant: &Mutant) -> Result<(), ValidationError> {
+    if mutant.replacement.contains('\r') {
+        return Err(ValidationError::CarriageReturnInReplacement {
+            mutant_id: mutant.id.clone(),
+        });
+    }
+    Ok(())
 }
 
 fn check_hash(mutant: &Mutant, bytes: &[u8]) -> Result<(), ValidationError> {

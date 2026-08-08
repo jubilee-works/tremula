@@ -29,9 +29,25 @@ document, and every pack is required to answer it.
 
 ### `validate --manifest <path> --project <dir>`
 
-Perform language-level validation only: every replacement parses, and every
-span corresponds to a node the backend can match. Exit 0 when all mutants pass,
-2 otherwise.
+Perform language-level validation only — the neutral checks against the bytes on
+disk are the core's. Exit 0 when all mutants pass, 2 otherwise.
+
+The checks a pack reports through `validate_checks`, as the Python pack
+implements them:
+
+- `parses` — the replacement is syntactically valid code.
+- `single_statement` — it is one top-level statement, since it has to stand in
+  for one node.
+- `round_trips` — reinjecting the parsed replacement loses none of its text.
+  This is losslessness after newline normalization, not byte-for-byte equality:
+  a replacement is compared with its trailing newlines stripped, because the
+  span it replaces normally stops before the line's newline and both spellings
+  have to produce the same file. What the check does catch is text a parser
+  attaches to a node's surroundings rather than to the node — trailing comments,
+  leading comments, blank lines — which would silently vanish on injection.
+- `span_matches_node` — the manifest's byte span lines up with a node the
+  backend can match, so a mutant that produces no work item means a real adapter
+  bug rather than a span that never had a chance.
 
 ### `run --manifest <path> --project <dir> --out <run-dir> [--tests <path>] [--timeout <seconds>]`
 
