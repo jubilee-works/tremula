@@ -53,7 +53,13 @@ implements them:
 
 Execute every mutant in the manifest and write `baseline.json`, `results.json`,
 and execution logs into the run directory. Exit 0 when the run completed, 2 on
-infrastructure failure. Verdicts are not the pack's business: an attempt that
+infrastructure failure.
+
+`--out` is the run directory itself, not a parent: its last path segment is the
+run identifier the documents carry. `--tests` may be repeated, and each value is
+passed to the test runner as given; omitting it leaves the project's own default
+collection in place. `--timeout` is a positive number of seconds and applies to
+each run of the suite; omitted, it is derived from how long the baseline took. Verdicts are not the pack's business: an attempt that
 produced no judgement is reported through `execution_status`, and an unusable
 baseline through the error channel below.
 

@@ -25,12 +25,14 @@ touch it.
 """
 
 from collections.abc import Iterator, Sequence
+from typing import cast
 
 from cosmic_ray.operators.operator import (  # pyright: ignore[reportMissingTypeStubs] - cosmic-ray publishes no py.typed marker
     Argument,
     Example,
     Operator,
 )
+from parso.python.tree import Operator as ParsoOperator
 
 from tremula_python.positions import (
     ParsoNode,
@@ -120,8 +122,8 @@ class TremulaOperator(Operator):
             return
         yield (self._start, self._end)
 
-    def mutate(self, node: ParsoNode, index: int) -> ParsoNode | None:  # pyright: ignore[reportIncompatibleMethodOverride] - the abstract base has no return annotation, so it appears to return None
-        """Build the node that replaces `node`, or None to delete it.
+    def mutate(self, node: ParsoNode, index: int) -> ParsoNode:  # pyright: ignore[reportIncompatibleMethodOverride] - the abstract base has no return annotation, so it appears to return None
+        """Build the node that replaces `node`.
 
         Args:
             node: The matched node, whose leading whitespace is inherited.
@@ -139,7 +141,7 @@ class TremulaOperator(Operator):
         source = shaped_like_the_span(self.replacement, self.original)
         statements = significant_children(parse_source(source))
         if not statements:
-            return None
+            return _nothing_where(node)
         if len(statements) > 1:
             raise ValueError(
                 f"mutant {self.mutant_id}: replacement is {len(statements)} statements, "
@@ -165,6 +167,24 @@ class TremulaProvider:
         return TremulaOperator
 
 
+def _nothing_where(node: ParsoNode) -> ParsoNode:
+    """A leaf with no text of its own, standing where `node` was.
+
+    Deleting the node instead would take more than the manifest asked for. parso
+    files the whitespace and comments that precede a statement in that
+    statement's own `prefix`, and a prefix is rendered as part of the node — so
+    removing the node removes an indentation, a blank line, or a comment that the
+    span never covered. Standing an empty leaf in its place, carrying that same
+    prefix, deletes exactly the span's bytes and nothing else.
+
+    It also keeps a span over a whole file survivable. A deletion that removed
+    the tree's root would leave Cosmic Ray reading the mutated code off nothing.
+    """
+    # parso's leaves are annotated loosely enough that pyright reads their
+    # `get_code` as returning None; the protocol carries the real types onward.
+    return cast(ParsoNode, ParsoOperator("", node.start_pos, node.get_first_leaf().prefix))
+
+
 def _is_redundant_root(node: ParsoNode) -> bool:
     """Whether `node` is a tree root that one of its own children already covers.
 
@@ -175,9 +195,9 @@ def _is_redundant_root(node: ParsoNode) -> bool:
     become two Cosmic Ray jobs for one manifest mutant, breaking the one-job-per-
     mutant invariant that makes a missing job mean a real adapter bug.
 
-    The child is the match that is kept, because replacing the root is worse than
-    redundant: deleting it removes the tree Cosmic Ray then tries to read the
-    mutated code from.
+    The child is the match that is kept. Either would produce the same file, since
+    they share their code and their first leaf, so the choice is only about there
+    being one of them.
     """
     if node.type != "file_input":
         return False

@@ -8,8 +8,9 @@ than in every stage:
   diagnostics and failures alike are printed to stdout, and the last line is
   reserved for the machine-readable document.
 * **Every failure is a `pack-error` document with exit 2.** Diagnosed failures
-  arrive as `PackFailure`; anything else is rendered through the same channel as
-  `unexpected_error`, because a traceback would leave the core nothing to read.
+  arrive as `PackFailure`; an interrupt and any other exception are rendered
+  through the same channel, because a traceback — or silence — would leave the
+  core with an exit code and nothing to read.
 
 The work itself lives in the stage modules. This layer routes to them.
 """
@@ -38,17 +39,35 @@ EXIT_FAILURE = 2
 INVALID_ARGUMENTS = "invalid_arguments"
 """Code for a command line this pack cannot act on."""
 
+INTERRUPTED = "interrupted"
+"""Code for a run that was stopped from outside before it finished."""
+
+INVALID_MANIFEST = "invalid_manifest"
+"""Code for a document that is not a manifest this pack can read."""
+
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one subcommand and return the process exit code.
 
-    `Exception` is caught, not `BaseException`: `--help` finishes by raising
-    `SystemExit(0)`, and an interrupt should stay an interrupt.
+    Every way out except `--help` ends in a document on stdout. An interrupt is
+    caught by name rather than by catching `BaseException`, which would swallow
+    the `SystemExit(0)` that printing help raises.
     """
     try:
         return _dispatch(argv)
     except PackFailure as failure:
         return _report(failure)
+    except KeyboardInterrupt:
+        # The core is reading stdout for a document whatever happened, and a run
+        # that stops here leaves a session behind that `collect` can still read.
+        return _report(
+            PackFailure(
+                Stage.PREFLIGHT,
+                INTERRUPTED,
+                "the pack was interrupted before it finished; the run directory keeps "
+                "whatever the run had already done, and `collect` can report it",
+            )
+        )
     except Exception as error:
         # Nothing has told us how far the pack got, and preflight is the only
         # honest answer: no stage announced itself before this escaped.
@@ -89,9 +108,30 @@ def _validate(options: argparse.Namespace) -> int:
     manifest_path: Path = options.manifest
     project_root: Path = options.project
     with failures_as(Stage.VALIDATE):
-        manifest = Manifest.model_validate_json(manifest_path.read_bytes())
+        manifest = _manifest_from(manifest_path.read_text(encoding="utf-8"))
         preflight.validate_language(manifest, project_root)
     return 0
+
+
+def _manifest_from(document: str) -> Manifest:
+    """Read a manifest, saying so when the document is not one.
+
+    The core validates the manifest before it calls the pack, so this is a second
+    opinion — but it is the one a person invoking the pack directly will meet, and
+    a bad manifest reported as an unexplained pack failure sends them looking for
+    a bug in the wrong place.
+
+    Raises:
+        PackFailure: The document is not JSON, or not a manifest.
+    """
+    try:
+        return Manifest.model_validate_json(document)
+    except ValueError as error:
+        raise PackFailure(
+            Stage.VALIDATE,
+            INVALID_MANIFEST,
+            f"the manifest cannot be read: {error}",
+        ) from error
 
 
 def _run(options: argparse.Namespace) -> int:
@@ -109,7 +149,8 @@ def _run(options: argparse.Namespace) -> int:
     """
     manifest_path: Path = options.manifest
     project_root: Path = options.project
-    tests: list[str] = options.tests or []
+    named: list[str] | None = options.tests
+    tests = [] if named is None else named
     explicit: float | None = options.timeout
     layout = RunLayout.at(options.out)
     layout.prepare()
@@ -118,11 +159,14 @@ def _run(options: argparse.Namespace) -> int:
         preflight.check_environment()
     with failures_as(Stage.VALIDATE):
         manifest_copy = manifest_path.read_text(encoding="utf-8")
-        manifest = Manifest.model_validate_json(manifest_copy)
+        manifest = _manifest_from(manifest_copy)
         preflight.validate_language(manifest, project_root)
     with failures_as(Stage.BASELINE):
         reference = baseline.run_baseline(
-            project_root, tests, explicit or baseline.DEFAULT_TIMEOUT_SECONDS, layout
+            project_root,
+            tests,
+            baseline.DEFAULT_TIMEOUT_SECONDS if explicit is None else explicit,
+            layout,
         )
     with failures_as(Stage.PLAN):
         timeout = plan_session.effective_timeout(reference, explicit)
@@ -193,7 +237,7 @@ def _parser() -> _Parser:
     )
     run.add_argument(
         "--timeout",
-        type=float,
+        type=_positive_seconds,
         metavar="SECONDS",
         help="time limit for each suite run; derived from the baseline if omitted",
     )
@@ -205,6 +249,23 @@ def _parser() -> _Parser:
     _add_run_directory_option(collect_again)
     collect_again.set_defaults(handler=_collect)
     return parser
+
+
+def _positive_seconds(spelling: str) -> float:
+    """A time limit, refused unless it is a positive number of seconds.
+
+    Zero would be obeyed exactly: every suite killed as it started, every mutant a
+    timeout, and a report that blamed the code for it.
+    """
+    try:
+        seconds = float(spelling)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"`{spelling}` is not a number of seconds") from None
+    if seconds <= 0:
+        raise argparse.ArgumentTypeError(
+            f"a time limit has to be more than zero seconds, not `{spelling}`"
+        )
+    return seconds
 
 
 def _add_run_directory_option(parser: argparse.ArgumentParser) -> None:

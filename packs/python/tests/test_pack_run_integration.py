@@ -171,11 +171,39 @@ def test_every_entry_carries_a_standard_diff_and_a_location(
         lines = entry.diff.splitlines()
         assert lines[0] == "--- a/schedule.py"
         assert lines[1] == "+++ b/schedule.py"
-        assert f"-{mutant['original']}" in lines
-        assert f"+{mutant['replacement']}" in lines
+        body = lines[3:]
+        assert any(mutant["original"] in line for line in body if line.startswith("-"))
+        assert any(mutant["replacement"] in line for line in body if line.startswith("+"))
         assert entry.location is not None
         # The location is the line the mutant really landed on, counted from one.
         assert source.splitlines()[entry.location.line - 1].endswith(mutant["original"])
+
+
+def test_the_diff_of_every_entry_applies_to_the_project(
+    finished_run: tuple[subprocess.CompletedProcess[str], Path, dict[str, Any]],
+    tmp_path: Path,
+    copy_pack_project: Callable[[Path], Path],
+) -> None:
+    # The point of a diff in the report is that a reader can use it, and a hunk
+    # over a span's raw bytes cannot be used: a manifest span routinely begins and
+    # ends mid-line. `git apply --check` is the arbiter.
+    _, run_dir, _ = finished_run
+    project = copy_pack_project(tmp_path / "unmutated")
+
+    for entry in _results(run_dir).entries:
+        assert entry.diff is not None
+        patch = tmp_path / f"{entry.mutant_id}.diff"
+        patch.write_text(entry.diff, encoding="utf-8")
+
+        checked = subprocess.run(
+            ["git", "apply", "--check", str(patch)],
+            cwd=project,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert checked.returncode == 0, f"{entry.mutant_id}: {checked.stderr}\n{entry.diff}"
 
 
 def test_no_attempt_claims_a_time_it_does_not_know(

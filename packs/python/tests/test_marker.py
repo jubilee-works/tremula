@@ -73,10 +73,27 @@ def test_an_unreadable_marker_reads_as_nothing(description: str, line: str) -> N
     assert marker.parse_last(_line() + "\n" + line) is None, description
 
 
-@pytest.mark.parametrize("missing", sorted(FIELDS))
-def test_a_marker_missing_any_field_reads_as_nothing(missing: str) -> None:
+@pytest.mark.parametrize("missing", sorted(set(FIELDS) - {"target_hashes"}))
+def test_a_marker_missing_any_field_it_must_have_reads_as_nothing(missing: str) -> None:
     fields = {key: value for key, value in FIELDS.items() if key != missing}
     assert marker.parse_last(MARKER_PREFIX + json.dumps(fields)) is None
+
+
+@pytest.mark.parametrize("spelling", ["absent", "null"])
+def test_a_marker_without_file_hashes_is_still_a_marker(spelling: str) -> None:
+    # The hashes are evidence the pack checks, not part of the account of the
+    # suite. A marker without them says everything else it always said, and the
+    # missing evidence is a separate finding — dropping the whole marker instead
+    # would report a suite that plainly ran as one that never spoke.
+    fields = {key: value for key, value in FIELDS.items() if key != "target_hashes"}
+    if spelling == "null":
+        fields["target_hashes"] = None
+
+    parsed = marker.parse_last(MARKER_PREFIX + json.dumps(fields))
+
+    assert parsed is not None
+    assert parsed["target_hashes"] is None
+    assert parsed["passed"] == 14
 
 
 def test_a_marker_with_a_field_of_the_wrong_type_reads_as_nothing() -> None:

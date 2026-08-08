@@ -53,6 +53,13 @@ def _marker(**overrides: Any) -> str:
     return MARKER_PREFIX + json.dumps({**FIELDS, **overrides})
 
 
+def _marker_without_hashes() -> str:
+    """A marker that never mentions the file hashes."""
+    return MARKER_PREFIX + json.dumps(
+        {key: value for key, value in FIELDS.items() if key != "target_hashes"}
+    )
+
+
 @pytest.fixture(scope="module")
 def finished_run(
     tmp_path_factory: pytest.TempPathFactory,
@@ -171,10 +178,23 @@ def _first_entry_after(run_dir: Path, result: WorkResult) -> ResultEntry:
             False,
         ),
         (
-            "the marker arrived without the file hashes",
+            "the marker arrived with the file hashes empty",
             WorkResult(
                 worker_outcome=WorkerOutcome.NORMAL,
                 output=_marker(),
+                test_outcome=Outcome.SURVIVED,
+            ),
+            "backend_error",
+            True,
+        ),
+        (
+            # Not empty — absent. An older runner, or one that could not read the
+            # target list. The suite still ran and still reported, so the entry
+            # keeps its runner block and fails on the evidence, not on the marker.
+            "the marker arrived with no file hashes field at all",
+            WorkResult(
+                worker_outcome=WorkerOutcome.NORMAL,
+                output=_marker_without_hashes(),
                 test_outcome=Outcome.SURVIVED,
             ),
             "backend_error",

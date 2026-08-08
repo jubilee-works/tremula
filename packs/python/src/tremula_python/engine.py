@@ -23,6 +23,7 @@ something: the language checks already established that every span matches a nod
 so a mutant with no job is the adapter's fault and stops the run.
 """
 
+import shlex
 import subprocess
 import sys
 from collections.abc import Generator, Iterable
@@ -190,16 +191,17 @@ def _run(
         PackFailure: The command exited non-zero.
     """
     executable = Path(sys.executable).parent / "cosmic-ray"
+    command = [str(executable), *arguments]
     completed = subprocess.run(
-        [str(executable), *arguments],
+        command,
         cwd=project_root,
         capture_output=True,
         text=True,
         check=False,
     )
-    write_atomically(
-        log, f"$ {' '.join([str(executable), *arguments])}\n{completed.stdout}{completed.stderr}"
-    )
+    # Quoted, because the first line of the log exists to be run again: a run
+    # directory with a space in its path would otherwise be pasted as two words.
+    write_atomically(log, f"$ {shlex.join(command)}\n{completed.stdout}{completed.stderr}")
     if completed.returncode == 0:
         return
     raise PackFailure(

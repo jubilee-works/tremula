@@ -187,12 +187,12 @@ def test_validate_reports_the_language_failure_it_found(
     assert (error["stage"], error["code"]) == ("validate", "invalid_replacement")
 
 
-def test_validate_reports_an_unreadable_manifest_through_the_error_channel(
+def test_validate_names_a_document_that_is_not_a_manifest(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # The core validates the manifest against the schema before the pack ever
-    # sees it, so a document that is not even JSON has no diagnosis of its own —
-    # but it still has to arrive as a pack error rather than as a traceback.
+    # The core has its own opinion of the manifest before the pack ever sees one,
+    # so this is a redundant check — but the pack is also run by hand, and "your
+    # manifest is broken" and "the pack is broken" have to be told apart.
     project = _project(tmp_path)
     manifest = tmp_path / "manifest.json"
     manifest.write_text("{not json", encoding="utf-8")
@@ -200,10 +200,10 @@ def test_validate_reports_an_unreadable_manifest_through_the_error_channel(
     assert _run_validate(project, manifest) == 2
 
     error = _error_of(capsys.readouterr().out)
-    assert (error["stage"], error["code"]) == ("validate", "unexpected_error")
+    assert (error["stage"], error["code"]) == ("validate", "invalid_manifest")
 
 
-def test_validate_reports_a_manifest_that_breaks_the_schema(
+def test_validate_names_a_manifest_that_breaks_the_schema(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = _project(tmp_path)
@@ -214,4 +214,28 @@ def test_validate_reports_a_manifest_that_breaks_the_schema(
     assert _run_validate(project, manifest) == 2
 
     error = _error_of(capsys.readouterr().out)
-    assert error["stage"] == "validate"
+    assert (error["stage"], error["code"]) == ("validate", "invalid_manifest")
+    assert "span" in error["message"]
+
+
+def test_a_run_names_a_document_that_is_not_a_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = _project(tmp_path)
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text("[]", encoding="utf-8")
+
+    assert main(
+        [
+            "run",
+            "--manifest",
+            str(manifest),
+            "--project",
+            str(project),
+            "--out",
+            str(tmp_path / "run-1"),
+        ]
+    ) == 2
+
+    error = _error_of(capsys.readouterr().out)
+    assert (error["stage"], error["code"]) == ("validate", "invalid_manifest")

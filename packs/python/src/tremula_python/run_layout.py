@@ -30,17 +30,22 @@ class RunLayout:
     def at(cls, directory: Path) -> "RunLayout":
         """The layout of `directory`, resolved to an absolute path.
 
-        Resolving is not cosmetic: subprocesses run with the project as their
-        working directory, so a relative run directory would be written in the
-        wrong place, and a `latest` symlink has to become the run it points at
-        before its basename can be read as an identifier.
+        The name is checked *before* the path is resolved, because resolving is
+        exactly what hides a path that has no name: `.` becomes the working
+        directory and `..` its parent, both of which have names that say nothing
+        about any run, and the run's artifacts would be strewn through whatever
+        directory the pack was started in.
+
+        Resolving afterwards is not cosmetic either. Subprocesses run with the
+        project as their working directory, so a relative run directory would be
+        written in the wrong place, and a `latest` symlink has to become the run it
+        points at before its name can be read as an identifier.
 
         Raises:
-            PackFailure: The path has no basename to use as a run identifier —
-                a filesystem root, or `.`.
+            PackFailure: The path has no name of its own to use as a run
+                identifier — empty, a filesystem root, `.`, or `..`.
         """
-        resolved = directory.resolve()
-        if not resolved.name:
+        if directory.name in ("", ".", ".."):
             raise PackFailure(
                 Stage.PREFLIGHT,
                 "invalid_run_directory",
@@ -48,7 +53,7 @@ class RunLayout:
                 "run's identifier, and this path has none; pass a directory named after "
                 "the run",
             )
-        return cls(resolved)
+        return cls(directory.resolve())
 
     @property
     def run_id(self) -> str:
@@ -84,6 +89,11 @@ class RunLayout:
     def expected_hashes(self) -> Path:
         """What those files must hash to: one per mutant, plus the unmutated ones."""
         return self.directory / "expected-hashes.json"
+
+    @property
+    def diffs(self) -> Path:
+        """Each mutant's change as a patch, rendered while the sources were intact."""
+        return self.directory / "diffs.json"
 
     @property
     def baseline(self) -> Path:

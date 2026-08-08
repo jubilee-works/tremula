@@ -55,10 +55,15 @@ translation sees different bytes than the manifest measured, so byte spans drift
 by one per preceding line and multi-line originals can never match.
 
 The same rule applies to `replacement`: a carriage return anywhere in it is
-rejected. This one is checked here rather than left to a language pack, because
-a parser treats `\r` as ordinary text and cannot notice it — while a backend
-that writes source with newline translation turns it into `\n`, so the mutation
-applied would not be the mutation described.
+rejected. It is checked here rather than left to a language pack because what a
+carriage return does depends on the shape of the span it lands in, and no single
+pack-level check catches it. Measured on the Python pack: in a replacement for an
+expression the carriage return disappears, in a replacement for a whole statement
+it survives into the file as a CRLF line ending, and inside a string literal it
+can change how many statements the replacement parses as. Carriage returns
+interact unpredictably with a backend's parse-and-reshape pipeline, so they are
+rejected outright instead of being reshaped into something the manifest never
+described.
 
 An empty `mutants` list is a valid manifest and means "nothing to test".
 

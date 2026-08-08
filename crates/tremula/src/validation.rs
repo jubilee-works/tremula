@@ -362,11 +362,15 @@ fn declared_encoding(line: &str) -> Option<String> {
 
 /// Hold replacements to the same rule as the files they go into: LF only.
 ///
-/// This one cannot be delegated to a language pack. A parser keeps a `\r` as
-/// ordinary text, so a replacement carrying one round-trips through every check
-/// a pack can make — and then the backend, which reads and writes source with
-/// universal newline translation, writes it out as a `\n`. The mutation applied
-/// would not be the mutation described.
+/// This one cannot be delegated to a language pack, because what a carriage
+/// return does depends on the shape of the span it lands in. Measured against
+/// the Python pack and its backend: in a replacement for an expression the
+/// carriage return disappears, in a replacement for a whole statement it
+/// survives into the file as a CRLF line ending — the very thing a CRLF *file*
+/// is rejected for — and inside a string literal it can change how many
+/// statements the replacement parses as. A pack's own checks cannot see any of
+/// that, and none of it is the mutation the manifest described, so carriage
+/// returns are refused outright rather than reshaped.
 fn check_replacement_line_endings(mutant: &Mutant) -> Result<(), ValidationError> {
     if mutant.replacement.contains('\r') {
         return Err(ValidationError::CarriageReturnInReplacement {

@@ -1,9 +1,10 @@
 """Rebuild what a run observed, from the run directory and nothing else.
 
 `collect` is given one path. Everything else it rediscovers there — the manifest
-copy, the table of hashes each file should have had, the backend's own session —
-which is what makes it usable after an interrupted run, and what makes it
-idempotent: run it twice and the second `results.json` is byte for byte the first.
+copy, the table of hashes each file should have had, the diffs rendered while the
+sources were still intact, the backend's own session — which is what makes it
+usable after an interrupted run, and what makes it idempotent: run it twice and
+the second `results.json` is byte for byte the first.
 
 Nothing here judges. A verdict is the core's to decide, and the whole job of this
 module is to hand it signals that mean the same thing in every language: which
@@ -44,7 +45,7 @@ from tremula_python.contracts import (
     Results,
     Stage,
 )
-from tremula_python.cr_operator import FULL_OPERATOR_NAME, shaped_like_the_span
+from tremula_python.cr_operator import FULL_OPERATOR_NAME
 from tremula_python.engine import MUTANT_ID_ARGUMENT, Session
 from tremula_python.errors import PackFailure
 from tremula_python.plan_session import ExpectedHashes
@@ -95,13 +96,14 @@ def collect(run_dir: Path) -> Results:
     _require_a_readable_run(layout)
     manifest = Manifest.model_validate_json(layout.manifest.read_bytes())
     hashes = plan_session.read_expected_hashes(layout.expected_hashes)
+    diffs = plan_session.read_diffs(layout.diffs)
     with engine.open_session(layout.session) as session:
         jobs = _jobs_by_mutant(session, manifest)
     entries: list[ResultEntry] = []
     for mutant in manifest.mutants:
         job = jobs.get(mutant.id)
         reading = _read(job, mutant, hashes)
-        entries.append(_entry(mutant, job, reading))
+        entries.append(_entry(mutant, job, reading, diffs.get(mutant.id)))
         _keep_the_output(layout, mutant, job, reading)
     results = Results(
         schema_version=CONTRACT_VERSION,
@@ -117,11 +119,12 @@ def _require_a_readable_run(layout: RunLayout) -> None:
     """Refuse a directory that is not a run this pack planned.
 
     Raises:
-        PackFailure: The manifest copy, the hash table, or the session is missing.
+        PackFailure: The manifest copy, the hash table, the diffs, or the session
+            is missing.
     """
     missing = [
         path.name
-        for path in (layout.manifest, layout.expected_hashes, layout.session)
+        for path in (layout.manifest, layout.expected_hashes, layout.diffs, layout.session)
         if not path.is_file()
     ]
     if not missing:
@@ -238,10 +241,14 @@ def _hash_problem(reported: Marker, mutant: Mutant, hashes: ExpectedHashes) -> s
     return None
 
 
-def _entry(mutant: Mutant, job: _Job | None, reading: _Reading) -> ResultEntry:
+def _entry(
+    mutant: Mutant, job: _Job | None, reading: _Reading, diff: str | None
+) -> ResultEntry:
     """One mutant's entry.
 
-    Every field is either observed or absent. `finished_at` is always absent: the
+    Every field is either observed or absent. The diff is the one the plan
+    rendered while the sources were still intact — a diff taken now could describe
+    a file an interrupted run left mutated. `finished_at` is always absent: the
     session records no time of its own, and `truncated` is always false because
     nothing here shortens what it captured.
     """
@@ -254,35 +261,10 @@ def _entry(mutant: Mutant, job: _Job | None, reading: _Reading) -> ResultEntry:
             if job is not None and job.reported is not None
             else None
         ),
-        diff=_diff(mutant, job.location) if job is not None else None,
+        diff=diff,
         truncated=False,
         finished_at=None,
         backend_raw=_backend_raw(job),
-    )
-
-
-def _diff(mutant: Mutant, location: Location) -> str:
-    """The mutation as a unified diff, rebuilt from the manifest.
-
-    Rebuilt rather than read: an interrupted run can leave a target file mutated,
-    and a diff taken from disk would then describe the wrong thing. The hunk covers
-    exactly the span's text — the run directory does not carry the rest of the
-    line — and the replacement is shaped the way the operator shapes it, so the
-    diff shows what was really injected.
-    """
-    before = mutant.original.splitlines()
-    after = shaped_like_the_span(mutant.replacement, mutant.original).splitlines()
-    return (
-        "\n".join(
-            [
-                f"--- a/{mutant.file}",
-                f"+++ b/{mutant.file}",
-                f"@@ -{location.line},{len(before)} +{location.line},{len(after)} @@",
-                *(f"-{line}" for line in before),
-                *(f"+{line}" for line in after),
-            ]
-        )
-        + "\n"
     )
 
 

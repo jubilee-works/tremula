@@ -99,7 +99,9 @@ def test_every_mutant_appears_once_in_manifest_order(run_copy: Path) -> None:
     assert [entry["mutant_id"] for entry in entries] == [m.id for m in manifest.mutants]
 
 
-@pytest.mark.parametrize("removed", ["manifest.json", "expected-hashes.json", "session.sqlite"])
+@pytest.mark.parametrize(
+    "removed", ["manifest.json", "expected-hashes.json", "diffs.json", "session.sqlite"]
+)
 def test_a_directory_that_is_not_a_run_is_refused(run_copy: Path, removed: str) -> None:
     (run_copy / removed).unlink()
 

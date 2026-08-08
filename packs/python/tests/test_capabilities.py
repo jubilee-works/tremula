@@ -81,6 +81,26 @@ def test_an_unknown_subcommand_reports_a_pack_error() -> None:
     assert error["error"]["stage"] == "preflight"
 
 
+@pytest.mark.parametrize("spelling", ["0", "0.0", "-5", "not-a-number"])
+def test_a_time_limit_that_is_not_a_positive_number_is_refused(spelling: str) -> None:
+    # A limit of zero would be honoured to the letter: every suite killed the
+    # instant it started, every mutant a timeout.
+    completed = _pack(
+        "run",
+        "--manifest",
+        "manifest.json",
+        "--project",
+        ".",
+        "--out",
+        "run-1",
+        "--timeout",
+        spelling,
+    )
+
+    assert (completed.returncode, completed.stderr) == (2, "")
+    assert _last_line(completed.stdout)["error"]["code"] == "invalid_arguments"
+
+
 def test_a_missing_subcommand_reports_a_pack_error() -> None:
     completed = _pack()
 
@@ -110,6 +130,28 @@ def test_a_failure_the_pack_never_planned_for_still_reports_a_pack_error(
     )
     assert error["code"] == "unexpected_error"
     assert "the disk went away" in error["message"]
+
+
+def test_an_interrupted_run_reports_a_pack_error_too(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Ctrl-C is not an exception the pack can ignore: the core is reading stdout
+    # for a document either way, and an interrupt that printed nothing would look
+    # like a pack that died without explanation.
+    def interrupt() -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(capabilities, "build", interrupt)
+
+    assert main(["--capabilities"]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    error = _last_line(captured.out)["error"]
+    jsonschema.validate(
+        instance={"error": error}, schema=_contract("schemas/pack-error.schema.json")
+    )
+    assert error["code"] == "interrupted"
 
 
 def test_the_error_document_is_the_last_line_even_after_diagnostics(

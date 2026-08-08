@@ -10,13 +10,15 @@ Every function here assumes neutral validation already accepted the input:
 UTF-8, LF line endings, and spans inside the file. A span that violates those
 assumptions surfaces as an error rather than a plausible-looking wrong answer.
 
-That division of labour has one edge worth naming: a lone `\\r` inside a
-replacement is **not** caught by `validate_replacement`. parso keeps it as
-ordinary text, so it round-trips intact and none of the checks here can see
-anything wrong with it — but Cosmic Ray reads and writes the target file with
-universal newlines, which would turn it into `\\n` on the way out. Rejecting
-carriage returns belongs to the neutral, language-agnostic validation that
-already refuses CRLF files.
+That division of labour has one edge worth naming: a carriage return inside a
+replacement is **not** something the checks here can catch. Some spellings slip
+through them intact — `"x = 2\\r\\n"` and a lone `"\\r"` are both accepted — and
+what happens next depends on the span. Replacing an expression, the carriage
+return disappears; replacing a whole statement, it reaches the file as a CRLF
+line ending, which is exactly what a CRLF *file* is refused for. Neither is the
+mutation that was described, and no check over the replacement alone can tell
+which it will be, so rejecting carriage returns belongs to the neutral,
+language-agnostic validation that already refuses CRLF files.
 
 parso ships `py.typed`, but its tree API is annotated loosely enough that
 pyright sees `Unknown` (`parse` returns `Unknown`, `BaseNode.children` is

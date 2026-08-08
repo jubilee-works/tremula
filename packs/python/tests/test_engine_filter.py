@@ -9,6 +9,7 @@ missing job mean a real bug rather than an ordinary miss.
 """
 
 import json
+import shlex
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -173,6 +174,27 @@ def test_a_mutant_with_no_job_of_its_own_is_an_adapter_failure(tmp_path: Path) -
 
     assert (raised.value.stage.value, raised.value.code) == ("plan", "mutant_job_mismatch")
     assert "ghost" in raised.value.message
+
+
+def test_the_log_records_a_command_that_can_be_run_again(tmp_path: Path) -> None:
+    # The first line of the log is there to be copied into a shell. A path with a
+    # space in it, pasted unquoted, would run something else entirely.
+    document = _document(_mutant("first"))
+    manifest = Manifest.model_validate(document)
+    project = tmp_path / "a project"
+    (project / "src").mkdir(parents=True)
+    (project / TARGET).write_text(SOURCE, encoding="utf-8")
+    layout = RunLayout.at(tmp_path / "a run")
+    layout.prepare()
+    plan_session.build_plan(manifest, project, layout, [], 40.0).write(
+        layout, json.dumps(document)
+    )
+
+    engine.init_session(layout, project)
+
+    logged = (layout.logs / "init.txt").read_text(encoding="utf-8").splitlines()[0]
+    assert logged.startswith("$ ")
+    assert shlex.split(logged[2:])[1:] == ["init", str(layout.config), str(layout.session)]
 
 
 def test_a_session_cosmic_ray_refuses_to_build_is_reported_as_a_plan_failure(

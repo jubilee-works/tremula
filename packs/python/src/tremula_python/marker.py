@@ -16,7 +16,8 @@ The second job is translation. The marker speaks pytest — exit codes, a killed
 process's signal number — and the contracts speak neutrally, so `exit_class` is
 decided here, once. `target_hashes` deliberately does not cross over: it is
 evidence the pack consumes when it decides an `execution_status`, not a signal
-the core is allowed to judge.
+the core is allowed to judge — and it is the one field whose absence does not
+invalidate a marker, because a suite that ran said everything else it says.
 """
 
 import json
@@ -53,10 +54,11 @@ _FLAGS = ("collect_error", "timed_out")
 def parse_last(output: str) -> Marker | None:
     """The marker the runner wrote, or None if there is no readable one.
 
-    A marker is only accepted whole: every field the pack reads has to be present
-    and of the right type, because the alternative is a `KeyError` deep in a
-    translation with no way left to report it. Unknown fields are ignored, which
-    is what lets the runner grow new ones.
+    Every field the account of the suite is built from has to be present and of
+    the right type, because the alternative is a `KeyError` deep in a translation
+    with no way left to report it. `target_hashes` is the exception — evidence
+    rather than account, and its absence is a finding of its own. Unknown fields
+    are ignored, which is what lets the runner grow new ones.
     """
     line = _last_marker_line(output)
     if line is None:
@@ -121,9 +123,13 @@ def _marker_from(fields: dict[str, object]) -> Marker | None:
             return None
     if not isinstance(fields.get("collected_ids_hash"), str):
         return None
-    hashes = _target_hashes_from(fields.get("target_hashes"))
-    if hashes is None:
-        return None
+    hashes = None
+    if fields.get("target_hashes") is not None:
+        # Present but unreadable is a broken marker; absent is a marker that
+        # simply carries no evidence, which the reader has its own answer for.
+        hashes = _target_hashes_from(fields["target_hashes"])
+        if hashes is None:
+            return None
     return Marker(
         passed=cast("int", fields["passed"]),
         failed=cast("int", fields["failed"]),

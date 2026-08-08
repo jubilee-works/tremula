@@ -2,8 +2,10 @@
 
 Two things are being pinned here. The configuration has to be exactly what
 Cosmic Ray reads back — so every case goes through Cosmic Ray's own loader
-rather than comparing text — and the expected file hashes have to be exactly
-what the operator really produces, which is verified by running the operator.
+rather than comparing text — and both the operator and the predicted hash have to
+agree with the *contract*: replacing the bytes of the span, and no others. Each is
+checked against that file rather than against the other, because two
+implementations of the same mistake agree perfectly.
 """
 
 import json
@@ -24,11 +26,17 @@ from cosmic_ray.mutating import (  # pyright: ignore[reportMissingTypeStubs]
 
 from tremula_python import plan_session
 from tremula_python.contracts import Manifest
-from tremula_python.cr_operator import FULL_OPERATOR_NAME, TremulaOperator
+from tremula_python.cr_operator import (
+    FULL_OPERATOR_NAME,
+    TremulaOperator,
+    shaped_like_the_span,
+)
+from tremula_python.errors import PackFailure
 from tremula_python.run_layout import RunLayout
 
 SOURCE = "def overlaps(start, end):\n    return start < end\n"
 COMMENTED = "x = 1\n\n# explains y\ny = 2\n"
+DOCUMENTED = '"""What this module is for."""\nx = 1\n'
 SINGLE = "x = 1\n"
 TARGET = "src/overlap.py"
 OTHER = "src/other.py"
@@ -198,6 +206,56 @@ def test_a_replacement_full_of_awkward_characters_survives_the_round_trip(
     assert config["operators"][FULL_OPERATOR_NAME][0]["replacement"] == replacement
 
 
+@pytest.mark.parametrize(
+    ("description", "source", "original", "replacement"),
+    [
+        (
+            "a replacement that is a docstring",
+            SOURCE,
+            "start < end",
+            '"""a docstring"""',
+        ),
+        (
+            "a span over the docstring a file begins with",
+            DOCUMENTED,
+            '"""What this module is for."""',
+            '"""Something else."""',
+        ),
+    ],
+)
+def test_text_that_cannot_survive_the_session_file_is_refused(
+    tmp_path: Path, description: str, source: str, original: str, replacement: str
+) -> None:
+    # Measured against toml 0.10.2, the encoder Cosmic Ray reads its session with:
+    # a string that *begins* with a run of quotes comes back shortened, silently.
+    # Left unchecked the mutant reaches the backend as different text, matches
+    # nothing, and surfaces much later as a missing job.
+    manifest = _manifest(
+        _mutant("first", source=source, original=original, replacement=replacement)
+    )
+    project = _project(tmp_path, TARGET, source=source)
+
+    with pytest.raises(PackFailure) as raised:
+        plan_session.build_config(manifest, project, _layout(tmp_path), [], 40.0)
+
+    assert (raised.value.stage.value, raised.value.code) == (
+        "plan",
+        "unserializable_mutant",
+    ), description
+    assert "first" in raised.value.message
+
+
+def test_text_that_survives_the_session_file_is_accepted(tmp_path: Path) -> None:
+    # The neighbouring shapes, which do round-trip: quotes anywhere but the start,
+    # and a docstring inside a larger replacement.
+    for replacement in ['x = "y"', "'text'", 'x = """y"""', '"not a docstring"']:
+        manifest = _manifest(_mutant("first", replacement=replacement))
+
+        config = _built(manifest, tmp_path, _layout(tmp_path))
+
+        assert config["operators"][FULL_OPERATOR_NAME][0]["replacement"] == replacement
+
+
 def test_each_target_file_is_listed_once(tmp_path: Path) -> None:
     manifest = _manifest(
         _mutant("first"),
@@ -232,27 +290,38 @@ def test_each_target_file_is_listed_once(tmp_path: Path) -> None:
             "return start <= end\n",
         ),
         ("multiline replacement", SOURCE, "return start < end", "if start:\n        return end"),
-        # Deletions reach further than their span: the parser keeps the
-        # whitespace and comments before a statement inside the statement, so
-        # removing the node removes those too.
+        # Deletions are where a span is easiest to overrun: the parser keeps the
+        # indentation, blank lines, and comments before a statement inside that
+        # statement, and none of it belongs to the span.
         ("deletion of an indented statement", SOURCE, "return start < end\n", ""),
         ("deletion of a commented statement", COMMENTED, "y = 2\n", ""),
         ("deletion of the only statement in a file", SINGLE, "x = 1\n", ""),
+        ("deletion of every statement in a file", COMMENTED, COMMENTED, ""),
     ],
 )
-def test_the_expected_hash_is_what_the_operator_really_produces(
+def test_the_expected_hash_is_the_file_the_contract_describes(
     tmp_path: Path, description: str, source: str, original: str, replacement: str
 ) -> None:
-    manifest = _manifest(
-        _mutant("first", source=source, original=original, replacement=replacement)
-    )
+    # Both halves are checked against the contract rather than against each
+    # other: the operator has to produce the file that replacing the span's bytes
+    # produces, and the predicted hash has to be that same file's. Comparing the
+    # two alone would pass happily while both were wrong in the same way.
+    document = _mutant("first", source=source, original=original, replacement=replacement)
+    manifest = _manifest(document)
     project = _project(tmp_path, TARGET, source=source)
+    span = document["span"]
+    replaced = (
+        source[: span["start_byte"]]
+        + shaped_like_the_span(replacement, original)
+        + source[span["end_byte"] :]
+    )
 
     expected = plan_session.expected_hashes(manifest, project)
     config = _built(manifest, tmp_path, _layout(tmp_path), source=source)
     applied = _mutated(config["operators"][FULL_OPERATOR_NAME][0], source)
 
-    assert expected.mutated["first"] == sha256(applied.encode("utf-8")).hexdigest(), description
+    assert applied == replaced, description
+    assert expected.mutated["first"] == sha256(replaced.encode("utf-8")).hexdigest(), description
 
 
 def test_the_base_hash_is_the_file_as_it_stands(tmp_path: Path) -> None:
@@ -263,6 +332,60 @@ def test_the_base_hash_is_the_file_as_it_stands(tmp_path: Path) -> None:
 
     digest = sha256(SOURCE.encode("utf-8")).hexdigest()
     assert expected.base == {TARGET: digest, OTHER: digest}
+
+
+def test_a_mutants_diff_is_a_patch_of_whole_lines_with_context(tmp_path: Path) -> None:
+    # A span usually starts and ends mid-line, so a hunk holding only the span's
+    # own bytes would describe the change and apply nowhere. Whole lines with
+    # context make it a patch.
+    manifest = _manifest(_mutant("first"))
+    project = _project(tmp_path, TARGET)
+
+    diff = plan_session.build_diffs(manifest, project)["first"]
+
+    lines = diff.splitlines()
+    assert lines[0] == f"--- a/{TARGET}"
+    assert lines[1] == f"+++ b/{TARGET}"
+    assert lines[2].startswith("@@ ")
+    assert "-    return start < end" in lines
+    assert "+    return start <= end" in lines
+    assert " def overlaps(start, end):" in lines, "the unchanged lines around it are context"
+
+
+def test_a_diff_records_a_file_that_ends_without_a_newline(tmp_path: Path) -> None:
+    # Left unsaid, a patch tool reads the line after this one as a continuation.
+    source = "x = 1"
+    manifest = _manifest(_mutant("first", source=source, original="x = 1", replacement="x = 2"))
+    project = _project(tmp_path, TARGET, source=source)
+
+    diff = plan_session.build_diffs(manifest, project)["first"]
+
+    assert diff.count("\\ No newline at end of file") == 2
+    assert diff.endswith("\n")
+
+
+def test_a_deletion_diff_only_removes_lines(tmp_path: Path) -> None:
+    manifest = _manifest(
+        _mutant("first", source=COMMENTED, original="y = 2\n", replacement="")
+    )
+    project = _project(tmp_path, TARGET, source=COMMENTED)
+
+    diff = plan_session.build_diffs(manifest, project)["first"]
+
+    assert "-y = 2" in diff.splitlines()
+    # The comment is context, not a removal: it is outside the span.
+    assert " # explains y" in diff.splitlines()
+
+
+def test_the_diffs_are_read_back_as_they_were_written(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+    project = _project(tmp_path, TARGET)
+    manifest = _manifest(_mutant("first"))
+
+    plan = plan_session.build_plan(manifest, project, layout, [], 40.0)
+    plan.write(layout, json.dumps(_manifest_document(_mutant("first"))))
+
+    assert plan_session.read_diffs(layout.diffs) == plan.diffs
 
 
 def test_writing_the_plan_leaves_everything_a_later_collect_needs(tmp_path: Path) -> None:

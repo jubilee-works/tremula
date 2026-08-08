@@ -142,9 +142,41 @@ def test_replacing_a_span_that_swallowed_its_newline_keeps_the_line_break() -> N
 
 def test_deleting_an_expression_may_leave_code_that_will_not_compile() -> None:
     # Syntactic validity is not this layer's job: a mutant that breaks the
-    # module is reported through the runner, not hidden here.
+    # module is reported through the runner, not hidden here. The space before
+    # the expression is outside the span, so it stays.
     operator = _operator((1, 4), (1, 9), "1 + 2", "")
-    assert _mutate("x = 1 + 2\n", operator) == "x =\n"
+    assert _mutate("x = 1 + 2\n", operator) == "x = \n"
+
+
+@pytest.mark.parametrize(
+    ("description", "source", "original", "start", "end"),
+    [
+        ("at the start of a file", "x = 1\ny = 2\n", "x = 1\n", (1, 0), (2, 0)),
+        # The bytes parso keeps in a node's prefix are the trap: a comment and a
+        # blank line before a statement belong to the statement as far as the
+        # parser is concerned, and to nobody as far as the manifest is concerned.
+        (
+            "after a comment that must survive it",
+            "x = 1\n\n# explains y\ny = 2\n",
+            "y = 2\n",
+            (4, 0),
+            (5, 0),
+        ),
+        ("indented inside a function", "def f():\n    return 1\n", "return 1\n", (2, 4), (3, 0)),
+        ("the only statement in a file", "x = 1\n", "x = 1\n", (1, 0), (2, 0)),
+        ("every statement in a file", "x = 1\ny = 2\n", "x = 1\ny = 2\n", (1, 0), (3, 0)),
+    ],
+)
+def test_a_deletion_removes_the_span_and_not_one_byte_more(
+    description: str, source: str, original: str, start: Position, end: Position
+) -> None:
+    # The contract is `replace the bytes of span`, so a deletion has to leave a
+    # file identical to the source with those bytes cut out — no more, and
+    # without failing on a span that covers everything.
+    operator = _operator(start, end, original, "")
+    at = source.index(original)
+
+    assert _mutate(source, operator) == source[:at] + source[at + len(original) :], description
 
 
 def test_a_span_covering_the_whole_file_matches_once() -> None:
@@ -167,8 +199,8 @@ def test_a_whole_file_span_without_a_trailing_newline_matches_once() -> None:
 
 
 def test_deleting_the_whole_file_empties_it_instead_of_crashing() -> None:
-    # Matching `file_input` here would delete the root of the tree, and Cosmic Ray
-    # would fail reading the code back off of None.
+    # Cosmic Ray reads the mutated code back off whatever the walk returns, so a
+    # deletion that removed the tree's root would leave it with nothing to read.
     operator = _operator((1, 0), (2, 0), "x = 1\n", "")
     assert _mutate("x = 1\n", operator) == ""
 

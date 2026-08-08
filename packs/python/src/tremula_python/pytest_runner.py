@@ -66,11 +66,14 @@ class Marker(TypedDict):
     it is free to carry backend-specific detail like `pytest_exit`. The key set
     is fixed: the backend looks every field up by name.
 
-    Two fields read less obviously than they look. `collected` mirrors the JUnit
+    Three fields read less obviously than they look. `collected` mirrors the JUnit
     report's `tests` attribute, which counts a pseudo-testcase when a module
     fails to import — harmless for a verdict, because `collect_error` is decided
-    first. And `pytest_exit` is negative when the runner had to kill the run: it
-    is then the signal number, not an exit status.
+    first. `pytest_exit` is negative when the runner had to kill the run: it is
+    then the signal number, not an exit status. And `target_hashes` is the only
+    field a reader tolerates the absence of: this runner always writes it, and a
+    marker that arrives without it is still an account of the suite, just one with
+    no evidence of what was on disk.
     """
 
     passed: int
@@ -83,7 +86,7 @@ class Marker(TypedDict):
     timed_out: bool
     pytest_exit: int
     duration_ms: int
-    target_hashes: dict[str, str | None]
+    target_hashes: dict[str, str | None] | None
 
 
 @dataclass(frozen=True)
