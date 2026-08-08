@@ -4,7 +4,7 @@ lint:
     cargo fmt --check
     cargo clippy --all-targets -- -D warnings
     uv run --package tremula-python ruff check packs/python
-    uv run --package tremula-python pyright packs/python
+    uv run --package tremula-python pyright --project packs/python packs/python
 
 test:
     cargo test
