@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SpansReport",
+  "description": "What one source file offers a generator, as the pack found it.\n\nThe spans are raw byte offsets into the same bytes `file_sha256` hashes, so a\nconsumer that reads the file itself arrives at the same text the pack saw.",
+  "type": "object",
+  "properties": {
+    "file": {
+      "description": "The file these spans describe, POSIX-style and relative to the project\nroot — the same spelling a manifest uses for the same file.",
+      "type": "string"
+    },
+    "file_sha256": {
+      "description": "SHA-256 of the file's raw bytes as the pack read them, written as\nlowercase hexadecimal. A manifest built from this report carries the same\nvalue as `base_file_sha256`, so a report that has gone stale can be told\nfrom one that still describes the file.",
+      "type": "string"
+    },
+    "functions": {
+      "description": "Every function in the file, in the order the file spells them: a function\nprecedes the ones nested inside it. A file with no functions reports an\nempty list.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/FunctionSpan"
+      }
+    },
+    "schema_version": {
+      "description": "Contract version of this document.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "file",
+    "file_sha256",
+    "functions"
+  ],
+  "$defs": {
+    "ExcludedKind": {
+      "description": "Why a stretch of a body is not a mutation target.\n\nOnly kinds a generator has been observed to aim at are listed. `Unknown` is\nthe fallback that makes a new kind additive: a consumer built before the kind\nexisted still learns that those bytes are excluded, which is the part of the\ndocument it has to obey.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `docstring` — A documentation string. Changing one changes no behaviour, so a mutation there is one no test suite can be blamed for missing.\n- `annotation` — The type in an annotated assignment. Annotations are erased at runtime, so the same argument holds.\n- `unknown` — A kind this consumer does not know, reported by a newer producer.",
+      "type": "string"
+    },
+    "ExcludedSpan": {
+      "description": "A stretch of a function's body that carries no behaviour a mutation could\nchange.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "What is standing there.",
+          "$ref": "#/$defs/ExcludedKind"
+        },
+        "span": {
+          "description": "The bytes to leave alone.",
+          "$ref": "#/$defs/Span"
+        }
+      },
+      "required": [
+        "kind",
+        "span"
+      ]
+    },
+    "FunctionSpan": {
+      "description": "One function: where it is, where its body is, and what inside that body is\nnot a mutation target.",
+      "type": "object",
+      "properties": {
+        "body_span": {
+          "description": "The statements of the body: from the start of the first to the end of the\nlast.\n\nThe signature and any decorator are therefore outside it by construction,\nand so are the comments and blank lines between the signature and the\nfirst statement, which are not statements to mutate. What remains inside\nit is a function's own code — and the functions nested in it, which is\nwhat the ownership rule in `contracts/pack-protocol.md` subtracts.",
+          "$ref": "#/$defs/Span"
+        },
+        "excluded": {
+          "description": "Stretches of `body_span` a mutation must not aim at. Absent means there\nare none.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExcludedSpan"
+          }
+        },
+        "qualified_name": {
+          "description": "Dotted name for a person to read: `Invoice.total` for a method,\n`sync_events.<locals>.merge` for a function nested in another.\n\nDisplay only, and never a key: overloaded definitions, a definition made\ntwice under different conditions, and a property's getter and setter all\nreport the same name. A consumer that has to identify a function uses\n`span`, which is unique within a report.",
+          "type": "string"
+        },
+        "span": {
+          "description": "The whole function, from the `def` or `async def` that opens it to the end\nof its last statement.\n\nDecorators are excluded, because they precede that keyword: the bytes\nbetween a decorator and `def` belong to no span in this report.",
+          "$ref": "#/$defs/Span"
+        }
+      },
+      "required": [
+        "qualified_name",
+        "span",
+        "body_span"
+      ]
+    },
+    "Span": {
+      "description": "A half-open byte range over a file's raw bytes: `[start_byte, end_byte)`.\nThat `start_byte` is below `end_byte` is a validation rule, not a schema\nconstraint.",
+      "type": "object",
+      "properties": {
+        "end_byte": {
+          "description": "Exclusive end offset.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "start_byte": {
+          "description": "Inclusive start offset, 0-indexed.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "start_byte",
+        "end_byte"
+      ]
+    }
+  }
+}

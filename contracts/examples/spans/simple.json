@@ -1,0 +1,12 @@
+{
+  "schema_version": "0.1",
+  "file": "src/scheduling/overlap.py",
+  "file_sha256": "3cfd5cb2b71ccbb3e57f07c29f6e228748ce2a7caacffbc9c9e020ce31a5f761",
+  "functions": [
+    {
+      "qualified_name": "overlaps",
+      "span": { "start_byte": 67, "end_byte": 250 },
+      "body_span": { "start_byte": 149, "end_byte": 250 }
+    }
+  ]
+}

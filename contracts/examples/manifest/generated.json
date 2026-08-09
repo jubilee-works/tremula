@@ -1,0 +1,44 @@
+{
+  "schema_version": "0.1",
+  "language": "python",
+  "base": { "revision": "4c9a1f7e2b8d0a3c5e7f9b1d3f5a7c9e1b3d5f70" },
+  "mutants": [
+    {
+      "id": "0e2f4a6b8c0d2e4f6a80b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4",
+      "file": "src/scheduling/overlap.py",
+      "base_file_sha256": "3cfd5cb2b71ccbb3e57f07c29f6e228748ce2a7caacffbc9c9e020ce31a5f761",
+      "span": { "start_byte": 149, "end_byte": 159 },
+      "original": "margin = 0",
+      "replacement": "margin = 1",
+      "description": "Leave a minute of slack, so touching intervals stop overlapping.",
+      "provenance": {
+        "generator": {
+          "name": "tremula-generate",
+          "version": "0.1.0",
+          "model": "example-model-2026-05-01",
+          "prompt_version": "3",
+          "generated_at": "2026-08-10T09:12:44Z"
+        }
+      }
+    },
+    {
+      "id": "6b8c0d2e4f6a80b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4f6a80b",
+      "file": "src/scheduling/overlap.py",
+      "base_file_sha256": "3cfd5cb2b71ccbb3e57f07c29f6e228748ce2a7caacffbc9c9e020ce31a5f761",
+      "span": { "start_byte": 174, "end_byte": 191 },
+      "original": "start < other_end",
+      "replacement": "start <= other_end",
+      "description": "Treat an interval that ends where the next begins as overlapping.",
+      "provenance": {
+        "generator": {
+          "name": "tremula-generate",
+          "version": "0.1.0",
+          "model": "example-model-2026-05-01",
+          "prompt_version": "3",
+          "generated_at": "2026-08-10T09:12:51Z"
+        },
+        "response_tokens": 148
+      }
+    }
+  ]
+}

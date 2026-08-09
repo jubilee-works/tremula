@@ -108,6 +108,39 @@ fn a_mutant_that_agrees_with_its_file_is_valid() {
     assert!(verified.warnings.is_empty());
 }
 
+/// Provenance is outside the identifier's derivation, which is what lets a
+/// generator record how it worked — and later record it differently — without
+/// changing what the mutation is. The keys are the ones the pack protocol
+/// documents, so the case that proves the exclusion is the case a generator
+/// really writes.
+#[test]
+fn recording_how_a_mutant_was_generated_leaves_its_identifier_alone() {
+    let root = project();
+    let bare = valid_mutant();
+    let mut recorded = valid_mutant();
+    recorded.provenance = serde_json::json!({
+        "generator": {
+            "name": "tremula-generate",
+            "version": "0.1.0",
+            "model": "example-model-2026-05-01",
+            "prompt_version": "3",
+            "generated_at": "2026-08-10T09:12:44Z"
+        },
+        "response_tokens": 148
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+
+    let verified = validate_manifest(&manifest(vec![recorded.clone()]), root.path()).unwrap();
+
+    assert!(verified.warnings.is_empty());
+    assert_eq!(
+        recorded.id, bare.id,
+        "the identifier is derived from what the mutation is, and provenance is not part of that"
+    );
+}
+
 #[test]
 fn a_missing_target_file_is_rejected() {
     let root = TempDir::new().unwrap();

@@ -13,8 +13,13 @@ from tremula_python.contracts import CONTRACT_VERSION, Capabilities, PackInfo
 DISTRIBUTION = "tremula-python"
 """The pack's distribution name, which is also how the core refers to it."""
 
-SUBCOMMANDS = ("run", "collect", "validate")
-"""The work subcommands. `--capabilities` is the handshake, not one of them."""
+SUBCOMMANDS = ("run", "collect", "validate", "spans")
+"""The work subcommands. `--capabilities` is the handshake, not one of them.
+
+`spans` is last because it arrived last, and because a core that has never heard
+of it still works with this pack: the handshake asks for the subcommands the core
+needs, not for the ones the pack has.
+"""
 
 VALIDATE_CHECKS = ("parses", "single_statement", "round_trips", "span_matches_node")
 """The language-level checks `validate` performs, in the order it applies them.

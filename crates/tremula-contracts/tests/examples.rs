@@ -8,8 +8,13 @@ use std::{fs, path::PathBuf};
 use schemars::{JsonSchema, schema_for};
 use serde::{Serialize, de::DeserializeOwned};
 use tremula_contracts::{
-    baseline::Baseline, capabilities::Capabilities, manifest::Manifest, pack_error::PackError,
-    report::Report, results::Results,
+    baseline::Baseline,
+    capabilities::Capabilities,
+    manifest::Manifest,
+    pack_error::{PackError, Stage},
+    report::Report,
+    results::Results,
+    spans::{ExcludedKind, SpansReport},
 };
 
 fn contracts_path(relative: &str) -> PathBuf {
@@ -26,6 +31,13 @@ fn read_json(relative: &str) -> serde_json::Value {
         .unwrap_or_else(|err| panic!("{} is not JSON: {err}", path.display()))
 }
 
+/// The committed schema, ready to judge a document.
+fn validator(schema_file: &str) -> jsonschema::Validator {
+    let committed_schema = read_json(&format!("schemas/{schema_file}"));
+    jsonschema::validator_for(&committed_schema)
+        .unwrap_or_else(|err| panic!("{schema_file} is not a usable schema: {err}"))
+}
+
 /// A valid example must satisfy three things at once: the committed schema
 /// accepts it, the Rust type deserializes it, and re-serializing reproduces it.
 /// Together these catch any drift between the generated schema and what serde
@@ -36,13 +48,11 @@ where
 {
     let instance = read_json(&format!("examples/{example}"));
 
-    let committed_schema = read_json(&format!("schemas/{schema_file}"));
-    let validator = jsonschema::validator_for(&committed_schema)
-        .unwrap_or_else(|err| panic!("{schema_file} is not a usable schema: {err}"));
-    if let Err(error) = validator.validate(&instance) {
+    if let Err(error) = validator(schema_file).validate(&instance) {
         panic!("{example} does not satisfy {schema_file}: {error}");
     }
 
+    let committed_schema = read_json(&format!("schemas/{schema_file}"));
     let generated_schema = serde_json::to_value(schema_for!(T)).unwrap();
     assert_eq!(
         committed_schema, generated_schema,
@@ -62,11 +72,15 @@ where
 fn valid_examples_are_accepted() {
     accepts::<Manifest>("manifest/minimal.json", "manifest.schema.json");
     accepts::<Manifest>("manifest/full.json", "manifest.schema.json");
+    accepts::<Manifest>("manifest/generated.json", "manifest.schema.json");
     accepts::<Results>("results/completed.json", "results.schema.json");
     accepts::<Baseline>("baseline/passing.json", "baseline.schema.json");
     accepts::<Report>("report/survived.json", "report.schema.json");
     accepts::<Capabilities>("capabilities/python.json", "capabilities.schema.json");
     accepts::<PackError>("pack-error/baseline-failed.json", "pack-error.schema.json");
+    accepts::<SpansReport>("spans/simple.json", "spans.schema.json");
+    accepts::<SpansReport>("spans/decorated.json", "spans.schema.json");
+    accepts::<SpansReport>("spans/async_nested.json", "spans.schema.json");
 }
 
 #[test]
@@ -92,6 +106,121 @@ fn unknown_fields_are_ignored() {
     instance["future_field"] = serde_json::json!(42);
     serde_json::from_value::<Manifest>(instance)
         .expect("additive fields must not break existing consumers");
+}
+
+/// The must-ignore rule holds for the newest document as much as for the oldest,
+/// and at every depth: a field added to a nested object is as additive as one
+/// added to the top level.
+#[test]
+fn unknown_fields_in_a_spans_report_are_ignored() {
+    let mut instance = read_json("examples/spans/decorated.json");
+    instance["future_field"] = serde_json::json!(42);
+    instance["functions"][0]["future_field"] = serde_json::json!(["a", "statement", "list"]);
+    instance["functions"][1]["excluded"][0]["future_field"] = serde_json::json!(true);
+    serde_json::from_value::<SpansReport>(instance)
+        .expect("additive fields must not break existing consumers");
+}
+
+/// Every enum a producer may extend carries an `Unknown` fallback, which makes a
+/// new variant as additive as a new field: a consumer built before the value
+/// existed reads it rather than rejecting the whole document.
+#[test]
+fn enum_values_this_consumer_does_not_know_are_read_as_unknown() {
+    let mut report = read_json("examples/spans/decorated.json");
+    report["functions"][1]["excluded"][0]["kind"] = serde_json::json!("type_parameter");
+    let parsed: SpansReport = serde_json::from_value(report).unwrap();
+    assert_eq!(parsed.functions[1].excluded[0].kind, ExcludedKind::Unknown);
+
+    let mut failure = read_json("examples/pack-error/baseline-failed.json");
+    failure["error"]["stage"] = serde_json::json!("a_step_invented_later");
+    let parsed: PackError = serde_json::from_value(failure).unwrap();
+    assert_eq!(parsed.error.stage, Stage::Unknown);
+}
+
+/// The fallback is worth nothing if the published schema contradicts it. A
+/// consumer that validates before it parses would refuse the very document the
+/// fallback exists to let it read, so the schema of an extensible enum has to
+/// accept a name no version of this contract has defined yet.
+#[test]
+fn a_schema_accepts_an_enum_value_it_does_not_name() {
+    let mut report = read_json("examples/spans/decorated.json");
+    report["functions"][1]["excluded"][0]["kind"] = serde_json::json!("type_parameter");
+    if let Err(error) = validator("spans.schema.json").validate(&report) {
+        panic!("a kind invented later must validate: {error}");
+    }
+
+    let mut failure = read_json("examples/pack-error/baseline-failed.json");
+    failure["error"]["stage"] = serde_json::json!("a_step_invented_later");
+    if let Err(error) = validator("pack-error.schema.json").validate(&failure) {
+        panic!("a stage invented later must validate: {error}");
+    }
+}
+
+/// Tolerance stops at the shape of the value. Nothing but a string could ever
+/// name one of these, so the schema stays as strict as the type about that —
+/// which is what keeps the schema a real check rather than an empty one.
+#[test]
+fn a_schema_refuses_an_enum_value_that_is_not_a_name() {
+    let mut report = read_json("examples/spans/decorated.json");
+    report["functions"][1]["excluded"][0]["kind"] = serde_json::json!(7);
+    assert!(
+        !validator("spans.schema.json").is_valid(&report),
+        "a kind that is not a string must not validate"
+    );
+    assert!(
+        serde_json::from_value::<SpansReport>(report).is_err(),
+        "a kind that is not a string must not deserialize"
+    );
+
+    let mut failure = read_json("examples/pack-error/baseline-failed.json");
+    failure["error"]["stage"] = serde_json::json!(["baseline"]);
+    assert!(
+        !validator("pack-error.schema.json").is_valid(&failure),
+        "a stage that is not a string must not validate"
+    );
+    assert!(
+        serde_json::from_value::<PackError>(failure).is_err(),
+        "a stage that is not a string must not deserialize"
+    );
+}
+
+/// The constants stay in the document a consumer reads even though they are no
+/// longer a rule it is held to: a schema that only said "a string" would leave
+/// a reader with no way to learn what this version actually emits.
+#[test]
+fn a_schema_still_names_the_enum_values_this_version_defines() {
+    for (schema_file, definition, values) in [
+        (
+            "pack-error.schema.json",
+            "Stage",
+            &[
+                "preflight",
+                "spans",
+                "validate",
+                "baseline",
+                "plan",
+                "execute",
+                "collect",
+                "unknown",
+            ][..],
+        ),
+        (
+            "spans.schema.json",
+            "ExcludedKind",
+            &["docstring", "annotation", "unknown"][..],
+        ),
+    ] {
+        let schema = read_json(&format!("schemas/{schema_file}"));
+        let described = schema["$defs"][definition]["description"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{definition} has no description in {schema_file}"));
+        for value in values {
+            assert!(
+                described.contains(&format!("`{value}`")),
+                "{definition} no longer names `{value}` for a reader of {schema_file}"
+            );
+        }
+    }
 }
 
 #[test]

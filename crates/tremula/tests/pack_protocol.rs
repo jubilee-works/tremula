@@ -113,6 +113,23 @@ fn a_pack_that_cannot_do_everything_the_core_needs_is_refused_by_name() {
     assert!(complaint.contains("validate"), "{complaint}");
 }
 
+/// The handshake asks for the subcommands the core needs, not for the ones the
+/// pack happens to have, so a pack that grows a subcommand this core has never
+/// heard of stays usable by it.
+#[test]
+fn a_pack_that_offers_more_subcommands_than_the_core_needs_is_accepted() {
+    let workspace = TempDir::new().unwrap();
+    let env = pack_answering(
+        workspace.path(),
+        &capabilities_with(
+            "subcommands",
+            r#"["run","collect","validate","spans","a_subcommand_invented_later"]"#,
+        ),
+    );
+
+    pack::handshake(&env).unwrap();
+}
+
 /// A pack that performs no language checks cannot tell a mutant this language
 /// can express from one it cannot, which is the pack's whole share of validation.
 #[test]
@@ -385,7 +402,10 @@ fn the_repositorys_pack_answers_the_handshake() {
 
     assert_eq!(capabilities.name, "tremula-python");
     assert_eq!(capabilities.contract_version, SCHEMA_VERSION);
-    assert_eq!(capabilities.subcommands, ["run", "collect", "validate"]);
+    assert_eq!(
+        capabilities.subcommands,
+        ["run", "collect", "validate", "spans"]
+    );
     assert_eq!(
         capabilities.validate_checks,
         [

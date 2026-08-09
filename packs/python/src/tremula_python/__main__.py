@@ -28,6 +28,7 @@ from tremula_python import (
     engine,
     plan_session,
     preflight,
+    spans,
 )
 from tremula_python.contracts import Manifest, Stage
 from tremula_python.errors import PackFailure, failures_as, unexpected
@@ -181,6 +182,19 @@ def _run(options: argparse.Namespace) -> int:
     return 0
 
 
+def _spans(options: argparse.Namespace) -> int:
+    """Say where a mutation may land in one file, and produce nothing else.
+
+    There is no run directory and no file to write: the caller is a generator
+    deciding what to propose, and the whole answer is the document on stdout.
+    """
+    project_root: Path = options.project
+    with failures_as(Stage.SPANS):
+        document = spans.as_document(spans.report(project_root, options.file))
+    print(document)
+    return 0
+
+
 def _collect(options: argparse.Namespace) -> int:
     """Rebuild a run's results from its directory, executing nothing."""
     with failures_as(Stage.COLLECT):
@@ -248,6 +262,27 @@ def _parser() -> _Parser:
     )
     _add_run_directory_option(collect_again)
     collect_again.set_defaults(handler=_collect)
+
+    where = subcommands.add_parser(
+        "spans", help="report one file's functions and the parts of them to leave alone"
+    )
+    # The file is a spelling, not a path this pack resolves for the caller: the
+    # contract's paths are POSIX and project-relative, and checking the text is
+    # part of refusing one that leads somewhere else.
+    where.add_argument(
+        "--file",
+        required=True,
+        metavar="PATH",
+        help="file to describe, POSIX-style and relative to the project root",
+    )
+    where.add_argument(
+        "--project",
+        type=Path,
+        required=True,
+        metavar="DIR",
+        help="project root the file path is relative to",
+    )
+    where.set_defaults(handler=_spans)
     return parser
 
 

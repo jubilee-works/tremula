@@ -1,0 +1,27 @@
+{
+  "schema_version": "0.1",
+  "file": "src/billing/invoice.py",
+  "file_sha256": "d6f594f9b7f69e267550987adc9eb0c654356da23bf56b22708bf550836ff916",
+  "functions": [
+    {
+      "qualified_name": "Invoice.__init__",
+      "span": { "start_byte": 144, "end_byte": 207 },
+      "body_span": { "start_byte": 191, "end_byte": 207 }
+    },
+    {
+      "qualified_name": "Invoice.total",
+      "span": { "start_byte": 234, "end_byte": 382 },
+      "body_span": { "start_byte": 266, "end_byte": 382 },
+      "excluded": [
+        {
+          "kind": "docstring",
+          "span": { "start_byte": 266, "end_byte": 312 }
+        },
+        {
+          "kind": "annotation",
+          "span": { "start_byte": 327, "end_byte": 330 }
+        }
+      ]
+    }
+  ]
+}

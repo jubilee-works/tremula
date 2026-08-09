@@ -28,14 +28,23 @@ pub struct PackErrorDetail {
     pub message: String,
 }
 
-/// The steps of a pack run, in the order a pack performs them. A `stage` tells
-/// the core how far the pack got, which distinguishes a project problem such as
-/// a failing baseline from an adapter problem such as a failed plan.
+/// The steps of a pack run, in the order a pack performs them, plus the steps of
+/// the calls that are not a run. A `stage` tells the core how far the pack got,
+/// which distinguishes a project problem such as a failing baseline from an
+/// adapter problem such as a failed plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
+#[schemars(transform = crate::open_enum::accepts_any_string)]
 pub enum Stage {
     /// Checking the environment before any work starts.
     Preflight,
+    // A pack only ever reports this to whoever asked it for spans, so no core
+    // that predates the value can meet it: a core that does not know the `spans`
+    // subcommand never calls it, and nothing else in a run produces the stage.
+    // The `Unknown` fallback below is what makes the next stage after this one
+    // safe for the calls where that reasoning does not hold.
+    /// Reading a source file's functions, before any manifest exists.
+    Spans,
     /// Language-level validation of the manifest.
     Validate,
     /// The unmutated reference run.
@@ -46,4 +55,9 @@ pub enum Stage {
     Execute,
     /// Reading results back out of the backend's state.
     Collect,
+    /// A step this consumer does not know, reported by a newer pack. The failure
+    /// is still a failure and still carries a code and a message; only where it
+    /// happened is beyond what this consumer can name.
+    #[serde(other)]
+    Unknown,
 }

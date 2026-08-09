@@ -37,39 +37,8 @@
       ]
     },
     "Stage": {
-      "description": "The steps of a pack run, in the order a pack performs them. A `stage` tells\nthe core how far the pack got, which distinguishes a project problem such as\na failing baseline from an adapter problem such as a failed plan.",
-      "oneOf": [
-        {
-          "description": "Checking the environment before any work starts.",
-          "type": "string",
-          "const": "preflight"
-        },
-        {
-          "description": "Language-level validation of the manifest.",
-          "type": "string",
-          "const": "validate"
-        },
-        {
-          "description": "The unmutated reference run.",
-          "type": "string",
-          "const": "baseline"
-        },
-        {
-          "description": "Turning the manifest into work items for the execution backend.",
-          "type": "string",
-          "const": "plan"
-        },
-        {
-          "description": "Applying mutants and running the suite.",
-          "type": "string",
-          "const": "execute"
-        },
-        {
-          "description": "Reading results back out of the backend's state.",
-          "type": "string",
-          "const": "collect"
-        }
-      ]
+      "description": "The steps of a pack run, in the order a pack performs them, plus the steps of\nthe calls that are not a run. A `stage` tells the core how far the pack got,\nwhich distinguishes a project problem such as a failing baseline from an\nadapter problem such as a failed plan.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `preflight` — Checking the environment before any work starts.\n- `spans` — Reading a source file's functions, before any manifest exists.\n- `validate` — Language-level validation of the manifest.\n- `baseline` — The unmutated reference run.\n- `plan` — Turning the manifest into work items for the execution backend.\n- `execute` — Applying mutants and running the suite.\n- `collect` — Reading results back out of the backend's state.\n- `unknown` — A step this consumer does not know, reported by a newer pack. The failure is still a failure and still carries a code and a message; only where it happened is beyond what this consumer can name.",
+      "type": "string"
     }
   }
 }

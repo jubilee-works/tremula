@@ -138,11 +138,13 @@ fn kept_in(log: Option<&PathBuf>) -> String {
 fn meaning(stage: Stage) -> &'static str {
     match stage {
         Stage::Preflight => "the project's environment is not ready to run mutants",
+        Stage::Spans => "the functions of a source file could not be read",
         Stage::Validate => "a mutant in the manifest is not valid for this language",
         Stage::Baseline => "your test suite failed before any mutants were tried",
         Stage::Plan => "the project layout could not be prepared",
         Stage::Execute => "the mutants could not be run",
         Stage::Collect => "the results of the run could not be read back",
+        Stage::Unknown => "the pack stopped at a step this version of tremula does not know",
     }
 }
 

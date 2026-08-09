@@ -6,11 +6,12 @@ document is for and the semantics a producer has to get right. The schemas
 themselves live in `contracts/schemas/`, are generated from the core's types,
 and are the authority whenever this page and they disagree.
 
-## The six documents
+## The seven documents
 
 | Document | Written by | Read by | Answers |
 | --- | --- | --- | --- |
 | `manifest` | whoever decides the mutations | core, pack | What should be mutated, and where? |
+| `spans` | pack | whoever decides the mutations | Where are this file's functions, and what inside them is not a target? |
 | `capabilities` | pack | core | Which contract version and subcommands does this pack support? |
 | `baseline` | pack | core | What did the suite do with no mutation applied? |
 | `results` | pack | core | What happened to each mutant, in neutral terms? |
@@ -85,7 +86,9 @@ bytes `412`. The result is written as lowercase hexadecimal.
 `base_file_sha256` is part of the derivation, so editing the target file changes
 every identifier in it — which is what makes resuming an interrupted run safe.
 `provenance` is deliberately excluded, so recording how a mutant was generated
-never changes its identity.
+never changes its identity. It is free-form, and the keys a generator writes into
+it are conventional rather than validated; `contracts/pack-protocol.md` names
+them.
 
 The core recomputes the identifier during validation and rejects a manifest
 whose identifier does not match. Two mutants that derive the same identifier are
@@ -175,10 +178,11 @@ then never applied is a defect in tremula, not in the project under test.
 ## Evolution
 
 Adding a field is a compatible change, and consumers must ignore fields they do
-not recognise. Adding a value to an existing enum is **not** compatible: a
-consumer that does not know the value rejects the document. That is intended for
-`language`, where an unknown value genuinely means "no pack for this", and has
-to be weighed for every other enum.
+not recognise. Adding a value to an existing enum is compatible on the same
+terms, but only where the enum defines an `unknown` value for consumers to fall
+back on — a failure's `stage` and an excluded span's `kind` both do. Where it
+does not, as with `language`, an unknown value genuinely means "no pack for
+this", and rejecting the document is the right answer.
 
 Optional fields may be omitted or sent as `null`, and both mean absent.
 Producers also differ over whether an empty optional map such as `provenance` or

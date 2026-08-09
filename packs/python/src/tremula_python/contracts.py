@@ -154,14 +154,30 @@ class Capabilities(_Model):
 
 
 class Stage(str, Enum):
-    """The steps of a pack run, in the order a pack performs them."""
+    """The steps of a pack run, plus the steps of the calls that are not a run."""
 
     PREFLIGHT = "preflight"
+    SPANS = "spans"
     VALIDATE = "validate"
     BASELINE = "baseline"
     PLAN = "plan"
     EXECUTE = "execute"
     COLLECT = "collect"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "Stage | None":
+        """Read a step named by a newer producer rather than refusing the document.
+
+        This is the enum half of the must-ignore rule: a failure report whose
+        `stage` is unreadable would cost the reader the code and the message too,
+        which are the parts that say what actually went wrong.
+
+        Only a *name* falls back. Anything that is not a string is not a stage
+        this contract could ever have named, so it is still refused — which is
+        also what the Rust side does with its `unknown` fallback.
+        """
+        return cls.UNKNOWN if isinstance(value, str) else None
 
 
 class PackErrorDetail(_Model):
@@ -176,3 +192,46 @@ class PackError(_Model):
     """A pack's failure report, printed as the last line of stdout."""
 
     error: PackErrorDetail
+
+
+class ExcludedKind(str, Enum):
+    """Why a stretch of a function's body is not a mutation target."""
+
+    DOCSTRING = "docstring"
+    ANNOTATION = "annotation"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "ExcludedKind | None":
+        """Read a kind named by a newer producer rather than refusing the document.
+
+        What a consumer has to obey is that the bytes are excluded, and that much
+        it can obey without knowing why. Anything that is not a string is still
+        refused: no version of this contract could have named it.
+        """
+        return cls.UNKNOWN if isinstance(value, str) else None
+
+
+class ExcludedSpan(_Model):
+    """A stretch of a function's body that carries no behaviour to mutate."""
+
+    kind: ExcludedKind
+    span: Span
+
+
+class FunctionSpan(_Model):
+    """One function: where it is, where its body is, and what to leave alone."""
+
+    qualified_name: str
+    span: Span
+    body_span: Span
+    excluded: list[ExcludedSpan] = Field(default_factory=list[ExcludedSpan])
+
+
+class SpansReport(_Model):
+    """What one source file offers a generator, as the pack found it."""
+
+    schema_version: str
+    file: str
+    file_sha256: str
+    functions: list[FunctionSpan]

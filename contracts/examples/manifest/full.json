@@ -11,7 +11,15 @@
       "original": "start < other.end",
       "replacement": "start <= other.end",
       "description": "Treat touching intervals as overlapping.",
-      "provenance": { "model": "example", "prompt_version": "1" }
+      "provenance": {
+        "generator": {
+          "name": "tremula-generate",
+          "version": "0.1.0",
+          "model": "example-model-2026-05-01",
+          "prompt_version": "1",
+          "generated_at": "2026-08-09T04:15:00Z"
+        }
+      }
     }
   ]
 }

@@ -72,6 +72,17 @@ def test_every_check_the_pack_reports_is_documented_in_the_protocol() -> None:
         assert f"`{check}`" in protocol, f"{check} is not documented in pack-protocol.md"
 
 
+def test_every_subcommand_the_pack_reports_is_documented_in_the_protocol() -> None:
+    # A subcommand nobody can read the call for is one nobody can call: the
+    # capabilities document names it, the protocol says what it takes and answers.
+    protocol = (CONTRACTS / "pack-protocol.md").read_text(encoding="utf-8")
+
+    for subcommand in capabilities.build().subcommands:
+        assert f"### `{subcommand} " in protocol, (
+            f"{subcommand} is not documented in pack-protocol.md"
+        )
+
+
 def test_an_unknown_subcommand_reports_a_pack_error() -> None:
     completed = _pack("bogus")
 

@@ -1,0 +1,29 @@
+{
+  "schema_version": "0.1",
+  "file": "src/scheduling/sync.py",
+  "file_sha256": "7489ce9c44cf88b7e36ec20c17d148d2657ad96a00cbc59f318545dad9fb2d7c",
+  "functions": [
+    {
+      "qualified_name": "sync_events",
+      "span": { "start_byte": 96, "end_byte": 519 },
+      "body_span": { "start_byte": 188, "end_byte": 519 },
+      "excluded": [
+        {
+          "kind": "docstring",
+          "span": { "start_byte": 188, "end_byte": 231 }
+        }
+      ]
+    },
+    {
+      "qualified_name": "sync_events.<locals>.merge",
+      "span": { "start_byte": 237, "end_byte": 459 },
+      "body_span": { "start_byte": 353, "end_byte": 459 },
+      "excluded": [
+        {
+          "kind": "annotation",
+          "span": { "start_byte": 361, "end_byte": 375 }
+        }
+      ]
+    }
+  ]
+}
