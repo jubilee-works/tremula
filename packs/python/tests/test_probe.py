@@ -1,10 +1,16 @@
 """What a probe observes, and everything it refuses to claim.
 
-Every case below is one the spike met for real: an algebraic rewrite whose witness
-was fabricated, a boundary the suite missed, a difference that is only an
+Every case below is one a measured run met for real: an algebraic rewrite whose
+witness was fabricated, a boundary the suite missed, a difference that is only an
 exception, a difference that is only printed output, and the ways a witness turns
 out not to be runnable at all. The fixture spells each concern as its own small
 function so that a failure names the concern.
+
+The comparison has a second group of cases of its own. A probe may only ever
+report a difference two processes really disagree about, so a value it cannot say
+that of — anything but the types whose equality is their content — is undecided,
+and a rendering that tells apart values that are `==` would be a difference this
+tool invented.
 """
 
 import json
@@ -16,6 +22,7 @@ from tremula_python import probe
 from tremula_python.__main__ import main
 from tremula_python.contracts import Ending, ProbeOutcome, ProbeReport, Undecided
 from tremula_python.errors import PackFailure
+from tremula_python.witness import MAX_NODES, function_named
 
 PROJECT = Path(__file__).resolve().parent / "fixtures" / "probe_project"
 CONTRACTS = Path(__file__).resolve().parents[3] / "contracts"
@@ -130,6 +137,74 @@ def test_a_value_that_compares_by_identity_is_undecided() -> None:
     assert report.undecided is Undecided.INCOMPARABLE
 
 
+def test_a_value_whose_equality_is_its_own_is_not_compared_by_its_rendering() -> None:
+    # The two values here are `==` and render differently. A comparison by rendering
+    # would report a difference the language says is not one, and a triage would
+    # publish it as a mutation distinguished at the level of the function.
+    report = _probe("Loose(name)", 'Loose(name + "!")', 'loose("ada")')
+    assert report.outcome is ProbeOutcome.UNDECIDED
+    assert report.undecided is Undecided.INCOMPARABLE
+
+
+def test_an_int_of_a_type_of_its_own_is_not_compared_as_an_int() -> None:
+    # The whitelist is of exact types, not of what a value is an instance of: this is
+    # an `int` by inheritance and its equality is not the one `int` has.
+    report = _probe("Counted(number)", "Counted(number + 1)", "counted(3)")
+    assert report.outcome is ProbeOutcome.UNDECIDED
+    assert report.undecided is Undecided.INCOMPARABLE
+
+
+def test_a_dataclass_is_not_compared_although_it_defines_equality() -> None:
+    # A dataclass does have equality of its own, and its rendering is even faithful to
+    # it. It is still a type the two processes each define for themselves, and the rule
+    # is the type of the value rather than a guess about whoever wrote it.
+    report = _probe("Slot(start, end)", "Slot(start, end + 1)", "slot(0, 30)")
+    assert report.outcome is ProbeOutcome.UNDECIDED
+    assert report.undecided is Undecided.INCOMPARABLE
+
+
+def test_an_enumeration_that_redefined_equality_is_not_compared_by_name() -> None:
+    # A member's name stands for the member only while the enumeration has not made
+    # two names one value. This one has, so the name is no longer a comparison.
+    report = _probe("Lenient(which)", 'Lenient("b")', 'lenient("a")')
+    assert report.outcome is ProbeOutcome.UNDECIDED
+    assert report.undecided is Undecided.INCOMPARABLE
+
+
+def test_a_value_that_contains_itself_is_undecided_rather_than_a_dead_probe() -> None:
+    # A rendering built out of a value's parts does not terminate on a value that is
+    # one of its own parts. That is a fact about the value: it has to arrive as
+    # `undecided`, and never as a language pack that died on the way.
+    report = _probe("[size]", "[size + 1]", "looping(2)")
+    assert report.outcome is ProbeOutcome.UNDECIDED
+    assert report.undecided is Undecided.INCOMPARABLE
+
+
+def test_two_spellings_of_one_number_are_not_a_difference() -> None:
+    # `Decimal("1.50") == Decimal("1.500")`, and the two print differently. Inside a
+    # dict, inside a value the comparison is built out of part by part.
+    report = _probe("Decimal(amount)", 'Decimal(amount + "0")', 'priced("1.50")')
+    assert report.outcome is ProbeOutcome.INDISTINGUISHABLE
+
+
+def test_two_spellings_of_one_instant_are_not_a_difference() -> None:
+    # Two aware datetimes are `==` when they are the same instant, whatever zone each
+    # is written in — and their renderings are not equal at all.
+    report = _probe(
+        "datetime(2026, 1, 1, tzinfo=timezone.utc)",
+        "datetime(2025, 12, 31, 23, tzinfo=timezone(timedelta(hours=-1)))",
+        "moment(5)",
+    )
+    assert report.outcome is ProbeOutcome.INDISTINGUISHABLE
+
+
+def test_a_value_built_only_out_of_comparable_parts_is_still_compared() -> None:
+    report = _probe("Decimal(amount)", 'Decimal(amount + "1")', 'priced("1.50")')
+    assert report.outcome is ProbeOutcome.DIFFERS
+    assert report.original is not None
+    assert report.original.type_name == "dict"
+
+
 @pytest.mark.parametrize(
     "call",
     [
@@ -147,6 +222,38 @@ def test_a_witness_a_probe_will_not_evaluate_is_undecided(call: str) -> None:
     assert report.outcome is ProbeOutcome.UNDECIDED
     assert report.undecided is Undecided.UNSAFE_WITNESS
     assert report.original is None and report.mutant is None
+
+
+def test_what_a_witness_may_say_is_a_list_of_syntax_and_these_are_its_edges() -> None:
+    # Each of these was probed against the interpreter this pack runs under before it
+    # was pinned, because what `literal_eval` happens to accept is not the rule: it
+    # takes `set()`, which is a call, and it takes a hundred thousand elements.
+    ran = {
+        "holds({1, 2})": 2,
+        'holds(b"abc")': 3,
+        "holds({})": 0,
+        "holds([-1, 2.5, None, True, (1,), {}])": 6,
+    }
+    for call, held in ran.items():
+        report = _probe("len(items)", "len(items) + 1", call)
+        assert report.outcome is ProbeOutcome.DIFFERS, call
+        assert report.original is not None
+        assert report.original.value == str(held), call
+    refused = ["holds(set())", "holds(frozenset({1}))", "holds([1 + 1])", "holds(1j)"]
+    for call in refused:
+        report = _probe("len(items)", "len(items) + 1", call)
+        assert report.outcome is ProbeOutcome.UNDECIDED, call
+        assert report.undecided is Undecided.UNSAFE_WITNESS, call
+
+
+def test_a_witness_of_more_syntax_than_the_cap_is_refused_before_anything_runs() -> None:
+    inside = ", ".join("0" for _ in range(MAX_NODES // 2))
+    assert function_named(f"holds([{inside}])") == "holds"
+    enormous = ", ".join("0" for _ in range(100_000))
+    assert function_named(f"holds([{enormous}])") is None
+    report = _probe("len(items)", "len(items) + 1", f"holds([{enormous}])")
+    assert report.outcome is ProbeOutcome.UNDECIDED
+    assert report.undecided is Undecided.UNSAFE_WITNESS
 
 
 def test_a_method_has_no_receiver_a_witness_could_name() -> None:

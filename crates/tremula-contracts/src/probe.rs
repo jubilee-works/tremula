@@ -73,11 +73,13 @@ pub enum Undecided {
     /// One version did not agree with itself across its own runs, so there is
     /// nothing stable to compare the other version against.
     Nondeterministic,
-    /// A value came back whose type compares by identity rather than by content,
-    /// so two of them made in two processes cannot be told equal or unequal.
+    /// A value came back that is not of a type whose equality is its content, so
+    /// two of them made in two processes cannot be told equal or unequal. A value
+    /// that cannot be walked at all — one containing itself — is reported this way
+    /// too.
     Incomparable,
-    /// The call was not the form a probe evaluates: an argument that is not a
-    /// literal, or anything else the whitelist refuses.
+    /// The call was not the form a probe evaluates: an argument holding syntax
+    /// outside the list a pack keeps, or a witness larger than one it will read.
     UnsafeWitness,
     /// The name the call uses is a method rather than a function of the module.
     /// A method needs a receiver, and nothing in a witness says what it should be.

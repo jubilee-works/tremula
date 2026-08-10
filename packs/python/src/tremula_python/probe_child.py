@@ -16,24 +16,27 @@ defined in the original report the same `__module__`, so a difference in that
 field is never mistaken for a difference in behaviour. The name is fixed rather
 than derived for the same reason.
 
-**Nothing is evaluated but literals.** The call arrives as text and every argument
-is read with `ast.literal_eval`, so no name, attribute, or nested call in a witness
+**Nothing is evaluated but literals.** The call arrives as text and is read by the
+list of syntax `witness` keeps, so no name, attribute, or nested call in a witness
 is ever executed. That is not a sandbox and does not pretend to be one: the
 function's *own* body runs, mutated, which is the same thing a run does when it
 applies a mutant and calls the suite. The threat model is that one, unchanged.
 """
 
-import ast
 import importlib.util
 import io
 import json
 import math
 import sys
 from contextlib import redirect_stdout
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from enum import Enum
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
+
+from tremula_python import witness
 
 MODULE_NAME = "tremula_probe_target"
 """What the loaded copy is called, the same on both sides. See the module docstring."""
@@ -72,21 +75,17 @@ def _run(job: dict[str, Any]) -> dict[str, Any]:
             module = _loaded(str(job["module"]))
     except (Exception, SystemExit) as error:  # noqa: BLE001 - reported, not handled
         return {"kind": "import_failed", "detail": f"{type(error).__name__}: {error}"}
-    call = ast.parse(str(job["call"]), mode="eval").body
-    if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
+    read = witness.one_call(str(job["call"]))
+    if read is None:
         return {"kind": "not_a_call"}
-    function = getattr(module, call.func.id, None)
+    name, call = read
+    function = getattr(module, name, None)
     if not callable(function):
         return {"kind": "no_such_function"}
-    try:
-        positional = [ast.literal_eval(argument) for argument in call.args]
-        named = {
-            str(keyword.arg): ast.literal_eval(keyword.value)
-            for keyword in call.keywords
-            if keyword.arg is not None
-        }
-    except (ValueError, SyntaxError, TypeError, MemoryError):
+    arguments = witness.arguments_of(call)
+    if arguments is None:
         return {"kind": "not_literal"}
+    positional, named = arguments
     return _observed(function, positional, named)
 
 
@@ -99,6 +98,17 @@ def _observed(
         with redirect_stdout(printed):
             returned = function(*positional, **named)
     except (Exception, SystemExit) as error:  # noqa: BLE001 - the result, not a failure
+        # An exception is compared by its type's `__qualname__` and its message, and
+        # the module the type came from is deliberately not part of that. Both sides
+        # load their copy of the file under one synthetic name, so a class defined in
+        # it reports the same `__module__` either way and the module would add
+        # nothing to the comparison. What the choice costs is real and worth saying:
+        # two different classes that share a name — `ValueError` raised by the
+        # original, some library's own `ValueError` raised by the mutant — are read
+        # as one type, and only the message is then left to carry the difference. A
+        # difference that is nothing but where an exception was defined is one this
+        # does not see, and a mutation whose whole effect is that is a mutation this
+        # reports as indistinguishable.
         return _account(
             ended="raised",
             type_name=type(error).__qualname__,
@@ -145,56 +155,175 @@ def _account(
 
 
 def _fingerprint(value: object) -> str | None:
-    """A rendering of `value` two processes can compare, or None if none exists.
+    """A rendering of `value` two processes can compare, or None if there is none.
 
-    Equality of the rendering has to mean what `==` means, which is why this is not
-    `repr`. A container is rendered from its parts, a set and a dict from their
-    parts in a sorted order so that the order they were built in does not show, and
-    `nan` is rendered as itself so that two of them come out equal — the one place
-    the rendering is deliberately kinder than `==`, because a function that returns
-    `nan` both times has not been told apart by this input.
+    Whatever comes back, two renderings are equal only where `==` is, which is what
+    makes a difference between them a difference and not an artefact. That is a
+    property of a short list of types and not of values in general, so the list is
+    the rule: `None`, a bool, an int, a float, a str, bytes, a `date`, a naive
+    `time`, a `datetime`, a `timedelta`, a `Decimal`, and a list, tuple, dict, set or
+    frozenset built out of those. A value of any other type comes back None —
+    incomparable — and the probe reports that it decided nothing.
 
-    None comes back for a value whose type compares by identity: two of those made
-    in two processes are neither equal nor unequal, and calling them either would be
-    inventing a fact. An enum member is the exception that proves the rule — its
-    identity *is* its name, and the name crosses a process boundary intact.
+    **The list is of exact types.** Not of what a value is an instance of: an `int`
+    subclass is a type whose author decided what equality means for it, and reading
+    it as an `int` would be reading somebody else's rule. And **not of whether a type
+    defines equality**, which is the trap this used to fall into: a value with an
+    `__eq__` of its own was compared by its `repr`, so two values that are `==` and
+    print differently were reported as a difference the language says is not one —
+    which a triage then publishes as a mutation distinguished at the level of the
+    function. Any custom class, any function, any generator: incomparable, whatever
+    equality it defines.
+
+    **Type and content both count, all the way down.** `1` and `1.0` are `==` and are
+    not the same value here, in a container or out of one — the type of a returned
+    value is part of what a caller sees, and the contract says as much.
+
+    Two places are deliberately kinder than `==`. `nan` is rendered as itself, so a
+    function that returns it both times has not been told apart by this input. And an
+    enum member is rendered by its name: two loadings of one module in two processes
+    make two objects that no comparison by identity could match, while the name
+    crosses the boundary intact and stands for the member exactly as long as the
+    enumeration has not written an `__eq__` of its own — see [`_member`].
+
+    Any failure to walk the value at all is the same answer as a type not on the
+    list. A value that contains itself is the case that matters: rendering it part by
+    part does not terminate, and the recursion has to arrive as `incomparable`
+    rather than as a language pack that died without saying anything.
     """
-    if value is None:
+    try:
+        return _rendering(value)
+    except Exception:  # noqa: BLE001 - a value that cannot be walked is not one to compare
+        return None
+
+
+def _rendering(value: object) -> str | None:
+    """The rendering itself, for whichever of the listed types this value is."""
+    kind = type(value)
+    if kind is type(None):
         return "none"
-    if isinstance(value, bool):
+    if kind is bool:
         return f"bool:{value}"
-    if isinstance(value, int):
+    if kind is int:
         return f"int:{value}"
-    if isinstance(value, float):
-        return "float:nan" if math.isnan(value) else f"float:{value!r}"
-    if isinstance(value, str):
+    if kind is float:
+        return _number(cast("float", value))
+    if kind is str:
         return "str:" + json.dumps(value)
-    if isinstance(value, (bytes, bytearray)):
-        return "bytes:" + bytes(value).hex()
-    if isinstance(value, Enum):
-        return f"enum:{type(value).__qualname__}.{value.name}"
-    if isinstance(value, (list, tuple)):
+    if kind is bytes:
+        return "bytes:" + cast("bytes", value).hex()
+    if kind is Decimal:
+        return _decimal(cast("Decimal", value))
+    if kind is datetime:
+        return _instant(cast("datetime", value))
+    if kind is date:
+        return f"date:{cast('date', value).isoformat()}"
+    if kind is time:
+        return _clock(cast("time", value))
+    if kind is timedelta:
+        return _elapsed(cast("timedelta", value))
+    if kind is list or kind is tuple:
         items = cast("list[object] | tuple[object, ...]", value)
-        return _sequence(type(items).__qualname__, [_fingerprint(item) for item in items])
-    if isinstance(value, (set, frozenset)):
+        return _sequence(kind.__qualname__, [_rendering(item) for item in items])
+    if kind is set or kind is frozenset:
         unordered = cast("set[object] | frozenset[object]", value)
-        rendered = [_fingerprint(item) for item in unordered]
-        return _sequence(type(unordered).__qualname__, sorted(rendered, key=_ordered))
-    if isinstance(value, dict):
+        rendered = [_rendering(item) for item in unordered]
+        return _sequence(kind.__qualname__, sorted(rendered, key=_ordered))
+    if kind is dict:
         mapping = cast("dict[object, object]", value)
         pairs = [
-            _sequence("pair", [_fingerprint(key), _fingerprint(held)])
+            _sequence("pair", [_rendering(key), _rendering(held)])
             for key, held in mapping.items()
         ]
-        return _sequence(type(mapping).__qualname__, sorted(pairs, key=_ordered))
-    if type(value).__eq__ is object.__eq__:
+        return _sequence(kind.__qualname__, sorted(pairs, key=_ordered))
+    # After the exact types, because an enumeration that mixes in `str` is a type of
+    # its own and not one of them.
+    if isinstance(value, Enum):
+        return _member(value)
+    return None
+
+
+def _number(value: float) -> str:
+    """A float, with the two values `==` calls one rendered as one.
+
+    `nan` is rendered as itself on purpose. `-0.0 == 0.0`, so a rendering that told
+    the two apart would report a difference where the language reports none.
+    """
+    if math.isnan(value):
+        return "float:nan"
+    if value == 0.0:
+        return "float:0.0"
+    return f"float:{value!r}"
+
+
+def _decimal(value: Decimal) -> str:
+    """A decimal as `==` reads it, which is not how it is spelled.
+
+    `Decimal("1.50") == Decimal("1.500")` and `Decimal("0") == Decimal("-0")`, so the
+    trailing zeros and the sign of a zero are taken out before anything is compared.
+    A `nan` is rendered as itself, for the same reason a float's is.
+    """
+    if value.is_nan():
+        return "decimal:nan"
+    if value == 0:
+        return "decimal:0"
+    return f"decimal:{value.normalize():f}"
+
+
+def _instant(value: datetime) -> str:
+    """A datetime as `==` reads it: an aware one is an instant, not a wall clock.
+
+    Two aware datetimes are equal when they name the same instant, whatever zone each
+    is written in, so an aware one is rendered by the instant it names. A naive one is
+    a reading of no particular clock and is rendered as itself — and the two are never
+    equal to each other, which is why they are rendered under different names.
+    """
+    offset = value.utcoffset()
+    if offset is None:
+        return f"datetime:{value.isoformat()}"
+    return f"datetime-utc:{(value - offset).replace(tzinfo=None).isoformat()}"
+
+
+def _clock(value: time) -> str | None:
+    """A naive time of day, or None for an aware one.
+
+    An aware `time` is compared by a reading shifted by its own offset, with no wrap
+    at midnight and no day behind it to wrap into. Nothing here models that rule, and
+    a rendering that got it wrong would be a difference invented, so an aware time is
+    not compared at all.
+    """
+    if value.utcoffset() is not None:
         return None
-    # A type that defines equality of its own is compared by its own repr: for a
-    # dataclass, a named tuple, a datetime, a timedelta, that is a faithful
-    # spelling of the value, and a type for which it is not is one whose author
-    # wrote a repr that hides part of the state it compares by.
-    rendered = _repr(value)
-    return None if rendered is None else f"repr:{type(value).__qualname__}:{rendered}"
+    return f"time:{value.isoformat()}"
+
+
+def _elapsed(value: timedelta) -> str:
+    """A length of time by its three normalised parts, which is what `==` compares."""
+    return f"timedelta:{value.days}:{value.seconds}:{value.microseconds}"
+
+
+def _member(value: Enum) -> str | None:
+    """An enum member by its name, while the name still stands for the member.
+
+    It does for as long as the enumeration inherited its equality — from `object`,
+    where distinct members are never equal, or from a type it mixes in, where two
+    members of equal value are one member and never two. An enumeration that writes
+    its own `__eq__` can make two names one value or one value two names, and a name
+    is then no longer a comparison: that is a value this refuses, like any other
+    whose equality is its author's.
+    """
+    written = any(
+        "__eq__" in vars(base) or "__ne__" in vars(base)
+        for base in type(value).__mro__
+        if issubclass(base, Enum)
+    )
+    # And a member has to have a name to be named by: a combination of flags has none
+    # in the older interpreters this pack supports, and rendering every combination as
+    # the same nameless thing would be agreement invented rather than observed.
+    name = getattr(value, "name", None)
+    if written or not isinstance(name, str):
+        return None
+    return f"enum:{type(value).__qualname__}.{name}"
 
 
 def _sequence(kind: str, parts: list[str | None]) -> str | None:

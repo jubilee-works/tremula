@@ -129,13 +129,23 @@ was measured against, whatever has happened to the working tree since. `--span` 
 the half-open byte range of the mutation, into those same bytes. The mutant side is
 produced by the pack's one splice, so it is byte for byte the file a run applies.
 
-`--call` is one call of the function, by the name its `def` gives it, and every
-argument is a literal — a constant, or a list, tuple, set or dict built out of
-constants, with a leading `-` allowed on a number. An attribute, a name from the
-module, a call inside the call, an unpacking, or an arithmetic expression is
-refused, and no part of a witness is ever executed as code: the arguments are read,
-not evaluated. Only a function the module defines at its own top level is probed; a
-method has no receiver a witness could name.
+`--call` is one call of the function, by the name its `def` gives it. What an
+argument may be is a list of syntax the pack keeps itself, and the list is the whole
+rule: `None`, a boolean, a number, a string, a bytestring, or a list, tuple, set or
+dict built out of those, with a leading `-` allowed on a number. Everything else is
+refused — an attribute, a name from the module, an unpacking, an arithmetic
+expression, and **any call inside the call**, `set()` included, empty though it is.
+A witness of more than **500 pieces of syntax** is refused as well: it is not one a
+person would read, and reading a hundred thousand elements is work no single
+survivor is worth. No part of a witness is ever executed as code: the arguments are
+read, not evaluated. Only a function the module defines at its own top level is
+probed; a method has no receiver a witness could name.
+
+A pack must not delegate that list to whatever its language's own literal reader
+happens to accept. Python's, for one, accepts `set()` — a call — because an empty
+set has no literal spelling; a rule that is a side effect of another function's
+implementation is a rule that changes when a standard library does, with nobody
+deciding it.
 
 **This is not a sandbox and does not claim to be one.** The function's own body
 executes, mutated, which is exactly what happens when `run` applies a mutant and
@@ -154,15 +164,41 @@ the environment.
 
 What counts as the same result:
 
-- **A value** is the same when its type is the same and its content is the same.
-  Content is compared by a rendering built from the value's parts rather than by
-  `repr` alone, so a set or a dict does not differ because it was built in another
-  order. `nan` is treated as equal to `nan`: a function that returns it both times
-  has not been told apart by this input. A member of an enumeration is compared by
-  its name. A value whose type compares by identity rather than by content is
-  `undecided (incomparable)` — two of those made in two processes are neither equal
-  nor unequal, and calling them either would be inventing a fact. Any other value
-  is compared by the language's own rendering of it.
+- **A value** is compared only when its type is one whose equality is its content,
+  and the types that are is a list the pack keeps: the language's own scalars, its
+  dates and times and exact decimals, and the containers built out of those. A value
+  of any other type is `undecided (incomparable)`, **whatever equality that type
+  defines** — two of them made in two processes are neither equal nor unequal, and a
+  rendering of one is not a statement about the other. That is the rule a comparison
+  by `repr` gets wrong in the direction that matters: two values that are equal and
+  print differently would be reported as a difference the language itself says is
+  not one.
+
+  The list is of exact types and not of what a value is an instance of: a subclass of
+  a listed type is a type whose author decided what its equality means. What is
+  compared is then the type and the content together, all the way down — an int and a
+  float that are equal to each other are not the same value here, inside a container
+  or out of one, because the type of what a function returns is part of what its
+  caller sees.
+
+  Content is compared by a rendering built out of the value's parts, so a set or a
+  dict does not differ because it was built in another order, and a rendering that is
+  not faithful to equality is normalised until it is: an exact decimal drops its
+  trailing zeros, and a moment in time is rendered by the instant it names rather
+  than by the zone it is written in. Two renderings are equal only where the
+  language's own equality is.
+
+  Two places are deliberately kinder than equality. `nan` is treated as equal to
+  `nan`: a function that returns it both times has not been told apart by this input.
+  And a member of an enumeration is compared by its name, because two loadings of one
+  module make two objects that no comparison by identity could match — for as long as
+  the enumeration has not written an equality of its own, after which its names no
+  longer stand for its members and it is incomparable like anything else.
+
+  A value that cannot be walked at all is `incomparable` too. One that contains
+  itself is the case that matters: no rendering built out of parts terminates on it,
+  and the pack reports that nothing could be compared rather than dying without an
+  answer.
 - **An exception** is compared by its type and its message. The traceback is not
   compared: the two versions have different line numbers by construction.
 - **A version that returned and a version that raised** always differ.

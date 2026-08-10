@@ -26,8 +26,9 @@ The shape of the work, and why each part of it is the way it is:
 
 **No new isolation is claimed.** The mutated function's own body executes, which is
 exactly what `run` does when it applies a mutant and calls the suite: the threat
-model is that one and no weaker. What is not evaluated is the witness — every
-argument is read as a literal, so nothing a model wrote is ever executed as code.
+model is that one and no weaker. What is not evaluated is the witness — its
+arguments are read by the list of syntax `witness` keeps, so nothing a model wrote
+is ever executed as code.
 
 **POSIX only**, for the same reason `pytest_runner` is: process-group isolation
 uses `start_new_session` and `os.killpg`.
@@ -57,6 +58,7 @@ from tremula_python.contracts import (
 )
 from tremula_python.cr_operator import file_with_the_mutation
 from tremula_python.errors import PackFailure
+from tremula_python.witness import function_named
 
 RUNS_PER_SIDE = 3
 """How many times each version is run. See the module docstring."""
@@ -132,33 +134,6 @@ def probe(
     return _compared(witness, observed["original"], observed["mutant"])
 
 
-def call_names(call: str) -> str | None:
-    """The function a witness call names, or None if the text is not such a call.
-
-    The whole of what a probe will evaluate: one call, of a name, with arguments
-    that are literals. An attribute, a name from the module, a call inside the
-    call, an unpacking — each of those would need code to run before the function
-    was reached, and running a model's code is the one thing this refuses to do.
-    """
-    try:
-        expression = ast.parse(call, mode="eval").body
-    except (SyntaxError, ValueError):
-        return None
-    if not isinstance(expression, ast.Call) or not isinstance(expression.func, ast.Name):
-        return None
-    if any(keyword.arg is None for keyword in expression.keywords):
-        return None
-    arguments = [*expression.args, *(keyword.value for keyword in expression.keywords)]
-    if any(isinstance(argument, ast.Starred) for argument in arguments):
-        return None
-    for argument in arguments:
-        try:
-            ast.literal_eval(argument)
-        except (ValueError, SyntaxError, TypeError, MemoryError):
-            return None
-    return expression.func.id
-
-
 def module_level_functions(module: ast.Module) -> set[str]:
     """The names a module defines as functions of its own, methods excluded."""
     return {
@@ -170,7 +145,7 @@ def module_level_functions(module: ast.Module) -> set[str]:
 
 def _refusal(text: str, witness: Witness) -> Undecided | None:
     """Why this witness cannot be run at all, or None if it can be."""
-    named = call_names(witness.call)
+    named = function_named(witness.call)
     if named is None:
         return Undecided.UNSAFE_WITNESS
     module = target_file.parsed(text, witness.file, Stage.PROBE)
