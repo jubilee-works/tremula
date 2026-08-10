@@ -1,0 +1,17 @@
+{
+  "about": "timezones.py: last_moment = stopped - timedelta(microseconds=1) → last_moment = stopped - timedelta(seconds=1)",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 958,
+    "completion": 137,
+    "total": 1095
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "crosses_midnight('2020-01-01T00:00:00+00:00', '2020-01-02T00:00:00+00:00', 'UTC')",
+      "expect_original": "returns True (subtracting 1 microsecond makes last_moment 2020-01-01 23:59:59.999999, so began.date != last_moment.date?)",
+      "expect_mutant": "returns False (subtracting 1 second makes last_moment still on 2020-01-01)"
+    }
+  }
+}

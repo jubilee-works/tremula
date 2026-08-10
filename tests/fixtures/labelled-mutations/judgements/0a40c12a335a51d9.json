@@ -1,0 +1,17 @@
+{
+  "about": "durations.py: -(-minutes // slot) → max(1, -(-minutes // slot))",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 868,
+    "completion": 50,
+    "total": 918
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "slots(0, 1)",
+      "expect_original": "returns 0",
+      "expect_mutant": "returns 1 (forced minimum)"
+    }
+  }
+}

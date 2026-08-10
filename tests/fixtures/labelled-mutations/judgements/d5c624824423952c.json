@@ -1,0 +1,13 @@
+{
+  "about": "durations.py: bool → int",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 829,
+    "completion": 22,
+    "total": 851
+  },
+  "judgement": {
+    "claim": "equivalent",
+    "witness": null
+  }
+}

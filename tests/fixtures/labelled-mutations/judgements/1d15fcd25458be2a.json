@@ -1,0 +1,13 @@
+{
+  "about": "ranges.py: return start < other_end and other_start < end → return (start <= other_start < end) or (other_start <= start < other_end)",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 868,
+    "completion": 22,
+    "total": 890
+  },
+  "judgement": {
+    "claim": "equivalent",
+    "witness": null
+  }
+}

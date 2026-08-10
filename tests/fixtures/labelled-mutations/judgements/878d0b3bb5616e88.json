@@ -1,0 +1,13 @@
+{
+  "about": "positions.py: return reparse_loss(statements[0], normalized) → return reparse_loss(statements[-1], normalized)",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 1138,
+    "completion": 22,
+    "total": 1160
+  },
+  "judgement": {
+    "claim": "equivalent",
+    "witness": null
+  }
+}

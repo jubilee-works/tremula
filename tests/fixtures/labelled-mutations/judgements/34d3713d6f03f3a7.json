@@ -1,0 +1,17 @@
+{
+  "about": "durations.py: minutes >= BREAK_AFTER_MINUTES → minutes > BREAK_AFTER_MINUTES",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 839,
+    "completion": 66,
+    "total": 905
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "needs_break(0)",
+      "expect_original": "raises NameError because BREAK_AFTER_MINUTES is not defined in this snippet",
+      "expect_mutant": "raises NameError because BREAK_AFTER_MINUTES is not defined in this snippet"
+    }
+  }
+}

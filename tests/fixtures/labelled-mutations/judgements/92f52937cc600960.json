@@ -1,0 +1,17 @@
+{
+  "about": "ranges.py: start < other_end and other_start < end → start <= other_end and other_start < end",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 858,
+    "completion": 75,
+    "total": 933
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "overlaps(5, 6, 0, 5)",
+      "expect_original": "returns False (because 5 < 5 is False)",
+      "expect_mutant": "returns True (because 5 <= 5 and 0 < 6)"
+    }
+  }
+}

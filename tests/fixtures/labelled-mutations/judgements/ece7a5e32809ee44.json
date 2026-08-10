@@ -1,0 +1,17 @@
+{
+  "about": "durations.py: raise ValueError(\"a slot must be at least one minute long\") → raise ValueError(\"slot must be positive\")",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 875,
+    "completion": 67,
+    "total": 942
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "slots(1, 0)",
+      "expect_original": "raises ValueError with message 'a slot must be at least one minute long'",
+      "expect_mutant": "raises ValueError with message 'slot must be positive'"
+    }
+  }
+}

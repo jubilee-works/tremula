@@ -1,0 +1,13 @@
+{
+  "about": "timezones.py: ZoneInfo(zone) → ZoneInfo(str(zone))",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 927,
+    "completion": 22,
+    "total": 949
+  },
+  "judgement": {
+    "claim": "equivalent",
+    "witness": null
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "about": "timezones.py: timedelta(microseconds=1) → timedelta(seconds=1)",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 950,
+    "completion": 135,
+    "total": 1085
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "crosses_midnight('2000-01-01T00:00:00+00:00', '2000-01-02T00:00:00.500000+00:00', 'UTC')",
+      "expect_original": "returns True (last_moment becomes 2000-01-02 00:00:00.499999 UTC so dates differ)",
+      "expect_mutant": "returns False (last_moment becomes 2000-01-01 23:59:59.500000 UTC so dates match)"
+    }
+  }
+}

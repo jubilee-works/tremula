@@ -1,0 +1,17 @@
+{
+  "about": "recurrence.py: backwards = (last.weekday() - weekday) % DAYS_IN_WEEK → backwards = (weekday - last.weekday()) % DAYS_IN_WEEK",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 1066,
+    "completion": 82,
+    "total": 1148
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "nth_weekday(2024, 6, 0, -1)",
+      "expect_original": "returns 2024-06-24 (the last Monday in June 2024)",
+      "expect_mutant": "returns a different date (computes the wrong offset from the last day)"
+    }
+  }
+}

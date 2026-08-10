@@ -1,0 +1,17 @@
+{
+  "about": "marker.py: marker[\"pytest_exit\"] → abs(marker[\"pytest_exit\"])",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 951,
+    "completion": 97,
+    "total": 1048
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "exit_class_of({'timed_out': False, 'pytest_exit': -1})",
+      "expect_original": "looks up key -1 in _EXIT_CLASSES, returning that class if present, else INFRA_ERROR",
+      "expect_mutant": "looks up key 1 in _EXIT_CLASSES (because abs(-1)==1), returning that class if present, else INFRA_ERROR"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "about": "timezones.py: timedelta(days=1) → timedelta(hours=24)",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 932,
+    "completion": 77,
+    "total": 1009
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "day_bounds('2020-03-08', 'America/New_York')",
+      "expect_original": "raises a TypeError because the first argument is not a datetime.date literal",
+      "expect_mutant": "raises a TypeError because the first argument is not a datetime.date literal"
+    }
+  }
+}

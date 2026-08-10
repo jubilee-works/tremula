@@ -1,0 +1,17 @@
+{
+  "about": "marker.py: marker[\"timed_out\"] → marker.get(\"timed_out\")",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 953,
+    "completion": 90,
+    "total": 1043
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "exit_class_of({'pytest_exit': 0})",
+      "expect_original": "raises KeyError when accessing marker['timed_out']",
+      "expect_mutant": "returns _EXIT_CLASSES.get(0, ExitClass.INFRA_ERROR) (no KeyError because timed_out is missing so marker.get('timed_out') is falsy)"
+    }
+  }
+}

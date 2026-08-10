@@ -1,0 +1,13 @@
+{
+  "about": "timezones.py: return began.date() != last_moment.date() → return began.date() < last_moment.date()",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 954,
+    "completion": 22,
+    "total": 976
+  },
+  "judgement": {
+    "claim": "equivalent",
+    "witness": null
+  }
+}

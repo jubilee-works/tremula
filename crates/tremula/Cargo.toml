@@ -47,6 +47,11 @@ time = { version = "0.3", features = ["macros", "parsing"] }
 # execution backend installed, so the whole target is opt-in rather than part of
 # `cargo test`.
 e2e = []
+# The accuracy measurement needs the same interpreter, and runs a witness for
+# every one of thirty-eight labelled mutations. Opt-in for the time that takes,
+# and separate from `e2e` because it is a measurement rather than a check that the
+# pipeline holds together.
+judge_accuracy = []
 
 [[test]]
 name = "e2e"
@@ -55,6 +60,10 @@ required-features = ["e2e"]
 [[test]]
 name = "e2e_generate"
 required-features = ["e2e"]
+
+[[test]]
+name = "judge_accuracy"
+required-features = ["judge_accuracy"]
 
 [lints]
 workspace = true

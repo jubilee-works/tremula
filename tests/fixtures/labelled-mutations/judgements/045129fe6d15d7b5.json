@@ -1,0 +1,17 @@
+{
+  "about": "positions.py: line_starts = _line_starts(source_bytes) → line_starts = _line_starts(source_bytes + b\"\\n\")",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 936,
+    "completion": 104,
+    "total": 1040
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "byte_span_to_positions(b\"\", {'start_byte': 0, 'end_byte': 0})",
+      "expect_original": "may raise (e.g., ValueError/IndexError) while computing line_starts on empty input, depending on _line_starts implementation",
+      "expect_mutant": "returns a pair of positions (no ValueError from line_starts computation, because it sees a trailing newline)"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "about": "marker.py: line = _last_marker_line(output) → line = _last_marker_line(output.rstrip(\"\\n\"))",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 999,
+    "completion": 89,
+    "total": 1088
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "parse_last(\"abc\\n\")",
+      "expect_original": "Might return a Marker (if _last_marker_line treats a trailing newline as producing an empty last line and then finds the previous line as the last marker line)",
+      "expect_mutant": "Returns None (after stripping newline, _last_marker_line sees no marker line)"
+    }
+  }
+}

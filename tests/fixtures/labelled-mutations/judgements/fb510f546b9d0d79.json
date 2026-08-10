@@ -1,0 +1,17 @@
+{
+  "about": "marker.py: marker[\"pytest_exit\"] → marker.get(\"pytest_exit\")",
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt": 951,
+    "completion": 86,
+    "total": 1037
+  },
+  "judgement": {
+    "claim": "distinguishable",
+    "witness": {
+      "call": "exit_class_of({'timed_out': False})",
+      "expect_original": "raises KeyError when accessing marker['pytest_exit']",
+      "expect_mutant": "returns ExitClass.INFRA_ERROR (because marker.get('pytest_exit') is None and .get(None, INFRA_ERROR) falls back to INFRA_ERROR)"
+    }
+  }
+}

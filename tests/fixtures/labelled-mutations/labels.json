@@ -1,0 +1,519 @@
+{
+  "provenance": "Mutations of the six modules under `sources/`, proposed by gpt-5.2-2025-12-11 and hand-labelled one at a time. `equivalent` was decided by running the two versions over the inputs the surrounding program can reach, never by reading what the model said about its own proposal; `label` and `why` are the reader's account of that decision. The sources are frozen bytes: every span here is an offset into them, so editing one invalidates the file.",
+  "criterion": "equivalent = no input the program can reach makes the two versions do different things. developer-likely = not equivalent, and a mistake that could really land. contrived = not equivalent, and a mistake nobody would make.",
+  "separable_at_function_level": "Two of the equivalent mutations are separable when the function is called on its own: an earlier guard in the program makes the difference unreachable, and calling the function directly walks past that guard. They are named here so that a measurement of how often a judge is wrong is not also a measurement of a limit already known.",
+  "mutations": [
+    {
+      "function": "needs_break",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 115,
+        "end_byte": 119
+      },
+      "original": "bool",
+      "replacement": "int",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "a return annotation nobody evaluates",
+      "family": "annotation"
+    },
+    {
+      "function": "needs_break",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 210,
+        "end_byte": 240
+      },
+      "original": "minutes >= BREAK_AFTER_MINUTES",
+      "replacement": "minutes > BREAK_AFTER_MINUTES",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "the classic fencepost, one minute either side of a threshold"
+    },
+    {
+      "function": "needs_break",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 210,
+        "end_byte": 240
+      },
+      "original": "minutes >= BREAK_AFTER_MINUTES",
+      "replacement": "minutes >= (BREAK_AFTER_MINUTES + 1)",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "a one-minute fencepost while turning a policy into code"
+    },
+    {
+      "function": "needs_break",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 210,
+        "end_byte": 240
+      },
+      "original": "minutes >= BREAK_AFTER_MINUTES",
+      "replacement": "minutes >= (BREAK_AFTER_MINUTES if minutes > 0 else 0)",
+      "equivalent": false,
+      "label": "contrived",
+      "why": "not a slip: a structure someone would have to sit down and write"
+    },
+    {
+      "function": "needs_break",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 210,
+        "end_byte": 240
+      },
+      "original": "minutes >= BREAK_AFTER_MINUTES",
+      "replacement": "minutes >= BREAK_AFTER_MINUTES * 2",
+      "equivalent": false,
+      "label": "contrived",
+      "why": "a doubling with no story; the model's hours-vs-minutes reading would need *60"
+    },
+    {
+      "function": "needs_break",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 210,
+        "end_byte": 240
+      },
+      "original": "minutes >= BREAK_AFTER_MINUTES",
+      "replacement": "minutes >= BREAK_AFTER_MINUTES - 30",
+      "equivalent": false,
+      "label": "contrived",
+      "why": "a magic offset nobody writes by accident"
+    },
+    {
+      "function": "slots",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 465,
+        "end_byte": 484
+      },
+      "original": "-(-minutes // slot)",
+      "replacement": "(minutes + slot - 1) // slot",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "identical for m in [-40,40] x s in [1,12], 0 differences; the model's negative-minutes claim is false",
+      "family": "algebraic"
+    },
+    {
+      "function": "slots",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 465,
+        "end_byte": 484
+      },
+      "original": "-(-minutes // slot)",
+      "replacement": "-(-minutes / slot)",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "a function annotated -> int starts returning a float"
+    },
+    {
+      "function": "slots",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 465,
+        "end_byte": 484
+      },
+      "original": "-(-minutes // slot)",
+      "replacement": "-(-minutes // (slot + 1))",
+      "equivalent": false,
+      "label": "contrived",
+      "why": "there is no story in which the divisor is slot + 1"
+    },
+    {
+      "function": "slots",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 465,
+        "end_byte": 484
+      },
+      "original": "-(-minutes // slot)",
+      "replacement": "max(1, -(-minutes // slot))",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "a plausible misreading of 'a meeting takes at least one slot'"
+    },
+    {
+      "function": "slots",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 394,
+        "end_byte": 453
+      },
+      "original": "raise ValueError(\"a slot must be at least one minute long\")",
+      "replacement": "raise ValueError(\"slot must be positive\")",
+      "equivalent": false,
+      "label": "contrived",
+      "why": "only the message text changes; a test pinning it is brittle, not productive"
+    },
+    {
+      "function": "slots",
+      "file": "durations.py",
+      "span": {
+        "start_byte": 458,
+        "end_byte": 484
+      },
+      "original": "return -(-minutes // slot)",
+      "replacement": "return minutes // slot",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "floor where the docstring says round up; 718 of 972 pairs differ"
+    },
+    {
+      "function": "exit_class_of",
+      "file": "marker.py",
+      "span": {
+        "start_byte": 3407,
+        "end_byte": 3428
+      },
+      "original": "marker[\"pytest_exit\"]",
+      "replacement": "abs(marker[\"pytest_exit\"])",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "reclassifies signal -2 as pytest's INTERRUPTED(2) \u2014 the docstring warns about this misreading"
+    },
+    {
+      "function": "exit_class_of",
+      "file": "marker.py",
+      "span": {
+        "start_byte": 3407,
+        "end_byte": 3428
+      },
+      "original": "marker[\"pytest_exit\"]",
+      "replacement": "marker.get(\"pytest_exit\")",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "the same unreachable difference",
+      "family": "unreachable-guard",
+      "separable_at_function_level": true
+    },
+    {
+      "function": "exit_class_of",
+      "file": "marker.py",
+      "span": {
+        "start_byte": 3320,
+        "end_byte": 3339
+      },
+      "original": "marker[\"timed_out\"]",
+      "replacement": "marker.get(\"timed_out\")",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "differs only on a dict with the key missing, and _marker_from returns None for those",
+      "family": "unreachable-guard",
+      "separable_at_function_level": true
+    },
+    {
+      "function": "parse_last",
+      "file": "marker.py",
+      "span": {
+        "start_byte": 2475,
+        "end_byte": 2507
+      },
+      "original": "line = _last_marker_line(output)",
+      "replacement": "line = _last_marker_line(output.rstrip(\"\\n\"))",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "splitlines() already drops the trailing newline; 6 outputs, all identical",
+      "family": "normalization"
+    },
+    {
+      "function": "parse_last",
+      "file": "marker.py",
+      "span": {
+        "start_byte": 2475,
+        "end_byte": 2507
+      },
+      "original": "line = _last_marker_line(output)",
+      "replacement": "line = _last_marker_line(output.strip())",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "strip() also eats leading whitespace, so an indented forged marker parses \u2014 measured"
+    },
+    {
+      "function": "parse_last",
+      "file": "marker.py",
+      "span": {
+        "start_byte": 2718,
+        "end_byte": 2774
+      },
+      "original": "return _marker_from(cast(\"dict[str, object]\", document))",
+      "replacement": "return _marker_from(cast(\"dict[str, object]\", dict(document)))",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "the same shallow copy by another spelling; probe 0/10",
+      "family": "no-op copy"
+    },
+    {
+      "function": "parse_last",
+      "file": "marker.py",
+      "span": {
+        "start_byte": 2718,
+        "end_byte": 2774
+      },
+      "original": "return _marker_from(cast(\"dict[str, object]\", document))",
+      "replacement": "return _marker_from(cast(\"dict[str, object]\", document.copy()))",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "_marker_from only reads its argument and the dict has no other referent; probe 0/10",
+      "family": "no-op copy"
+    },
+    {
+      "function": "byte_span_to_positions",
+      "file": "positions.py",
+      "span": {
+        "start_byte": 5196,
+        "end_byte": 5222
+      },
+      "original": "_line_starts(source_bytes)",
+      "replacement": "_line_starts(source_bytes + b\"\\n\")",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "the extra line start lands past the end of the file; 7 corpora x every in-range offset, 0 differences",
+      "family": "normalization"
+    },
+    {
+      "function": "byte_span_to_positions",
+      "file": "positions.py",
+      "span": {
+        "start_byte": 5196,
+        "end_byte": 5222
+      },
+      "original": "_line_starts(source_bytes)",
+      "replacement": "_line_starts(source_bytes.rstrip(b\"\\n\"))",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "loses the last line start and misreports an EOF offset; measured differences in 3 of 7 corpora"
+    },
+    {
+      "function": "byte_span_to_positions",
+      "file": "positions.py",
+      "span": {
+        "start_byte": 5182,
+        "end_byte": 5222
+      },
+      "original": "line_starts = _line_starts(source_bytes)",
+      "replacement": "line_starts = _line_starts(source_bytes + b\"\\n\")",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "the same + b\"\\n\" edit over a wider span, verified the same way",
+      "family": "normalization"
+    },
+    {
+      "function": "byte_span_to_positions",
+      "file": "positions.py",
+      "span": {
+        "start_byte": 4902,
+        "end_byte": 4906
+      },
+      "original": "Span",
+      "replacement": "tuple[int, int]",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "an annotation nobody evaluates at run time; the bytes the function returns are identical",
+      "family": "annotation"
+    },
+    {
+      "function": "validate_replacement",
+      "file": "positions.py",
+      "span": {
+        "start_byte": 6212,
+        "end_byte": 6259
+      },
+      "original": "normalized = normalize_replacement(replacement)",
+      "replacement": "normalized = replacement",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "simply skips the normalization step the module documents"
+    },
+    {
+      "function": "validate_replacement",
+      "file": "positions.py",
+      "span": {
+        "start_byte": 6855,
+        "end_byte": 6864
+      },
+      "original": "return []",
+      "replacement": "return errors",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "`if errors: return errors` above it means `errors` is [] at that line; probe 0/16",
+      "family": "unreachable-guard"
+    },
+    {
+      "function": "validate_replacement",
+      "file": "positions.py",
+      "span": {
+        "start_byte": 6804,
+        "end_byte": 6850
+      },
+      "original": "return reparse_loss(statements[0], normalized)",
+      "replacement": "return reparse_loss(statements[-1], normalized)",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "`len(statements) > 1` returned already and `if statements` is true, so there is exactly one; probe 0/16",
+      "family": "unreachable-guard"
+    },
+    {
+      "function": "merge",
+      "file": "ranges.py",
+      "span": {
+        "start_byte": 436,
+        "end_byte": 445
+      },
+      "original": "second[0]",
+      "replacement": "second[1]",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "start/end tuple index slip"
+    },
+    {
+      "function": "overlaps",
+      "file": "ranges.py",
+      "span": {
+        "start_byte": 211,
+        "end_byte": 257
+      },
+      "original": "return start < other_end and other_start < end",
+      "replacement": "return (start <= other_start < end) or (other_start <= start < other_end)",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "a rewrite that regresses on zero-length ranges: 660 of 6561 tuples differ, all of them with an empty range \u2014 a well-meant reimplementation, and a zero-length event is real"
+    },
+    {
+      "function": "overlaps",
+      "file": "ranges.py",
+      "span": {
+        "start_byte": 218,
+        "end_byte": 235
+      },
+      "original": "start < other_end",
+      "replacement": "start <= other_end",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "the textbook off-by-one on a half-open interval"
+    },
+    {
+      "function": "overlaps",
+      "file": "ranges.py",
+      "span": {
+        "start_byte": 218,
+        "end_byte": 257
+      },
+      "original": "start < other_end and other_start < end",
+      "replacement": "start <= other_end and other_start < end",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "the same <= off-by-one proposed over the whole `and`"
+    },
+    {
+      "function": "nth_weekday",
+      "file": "recurrence.py",
+      "span": {
+        "start_byte": 1445,
+        "end_byte": 1498
+      },
+      "original": "backwards = (last.weekday() - weekday) % DAYS_IN_WEEK",
+      "replacement": "backwards = (weekday - last.weekday()) % DAYS_IN_WEEK",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "the forward case copied and pasted as a mirror"
+    },
+    {
+      "function": "crosses_midnight",
+      "file": "timezones.py",
+      "span": {
+        "start_byte": 1369,
+        "end_byte": 1403
+      },
+      "original": "began.date() != last_moment.date()",
+      "replacement": "began.date() < last_moment.date()",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "the guard forces last_moment >= began, so the two agree everywhere; 160k random events",
+      "family": "unreachable-guard"
+    },
+    {
+      "function": "crosses_midnight",
+      "file": "timezones.py",
+      "span": {
+        "start_byte": 1308,
+        "end_byte": 1357
+      },
+      "original": "last_moment = stopped - timedelta(microseconds=1)",
+      "replacement": "last_moment = stopped - timedelta(seconds=1)",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "the same microseconds -> seconds slip over the whole assignment"
+    },
+    {
+      "function": "crosses_midnight",
+      "file": "timezones.py",
+      "span": {
+        "start_byte": 1362,
+        "end_byte": 1403
+      },
+      "original": "return began.date() != last_moment.date()",
+      "replacement": "return began.date() < last_moment.date()",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "the same edit over the whole return; 40,003 admitted events x 5 zones + 3 boundary cases, 0 differences",
+      "family": "unreachable-guard"
+    },
+    {
+      "function": "crosses_midnight",
+      "file": "timezones.py",
+      "span": {
+        "start_byte": 1143,
+        "end_byte": 1159
+      },
+      "original": "stopped <= began",
+      "replacement": "stopped < began",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "a zero-length event now gets past the guard"
+    },
+    {
+      "function": "crosses_midnight",
+      "file": "timezones.py",
+      "span": {
+        "start_byte": 1332,
+        "end_byte": 1357
+      },
+      "original": "timedelta(microseconds=1)",
+      "replacement": "timedelta(seconds=1)",
+      "equivalent": false,
+      "label": "developer-likely",
+      "why": "a unit slip that misclassifies an event ending at 00:00:00.5"
+    },
+    {
+      "function": "day_bounds",
+      "file": "timezones.py",
+      "span": {
+        "start_byte": 638,
+        "end_byte": 652
+      },
+      "original": "ZoneInfo(zone)",
+      "replacement": "ZoneInfo(str(zone))",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "str(s) is s for a str, and the parameter is annotated str",
+      "family": "string cast"
+    },
+    {
+      "function": "day_bounds",
+      "file": "timezones.py",
+      "span": {
+        "start_byte": 743,
+        "end_byte": 760
+      },
+      "original": "timedelta(days=1)",
+      "replacement": "timedelta(hours=24)",
+      "equivalent": true,
+      "label": "equivalent",
+      "why": "the two timedeltas are ==, and date + timedelta reads only .days; 760 days x 5 DST zones, 0 differences. The model's DST story is false \u2014 the operand is a date",
+      "family": "algebraic"
+    }
+  ]
+}
