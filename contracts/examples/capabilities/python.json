@@ -2,7 +2,13 @@
   "name": "tremula-python",
   "version": "0.1.0",
   "contract_version": "0.1",
-  "subcommands": ["run", "collect", "validate", "spans"],
+  "subcommands": [
+    "run",
+    "collect",
+    "validate",
+    "spans",
+    "probe"
+  ],
   "validate_checks": [
     "compiles_in_file",
     "single_statement",

@@ -42,6 +42,7 @@ use crate::{
     pack::{self, PackError},
     provenance,
     python_env::{self, PythonEnv},
+    suppressions::{DEFAULT_SUPPRESSIONS, Dismissals, warn_about_stale},
     validation::{read_target_file, validate_manifest},
 };
 
@@ -88,6 +89,10 @@ pub struct GenerateArgs {
     /// project, and an existing file is never overwritten.
     #[arg(long, value_name = "PATH")]
     pub out: Option<PathBuf>,
+    /// Where the project's dismissals are kept. Defaults to
+    /// `tremula-suppressions.json` in the project.
+    #[arg(long, value_name = "PATH")]
+    pub suppressions: Option<PathBuf>,
 }
 
 /// A count, refused unless there is at least one mutant in it.
@@ -197,6 +202,16 @@ pub fn compose(
     if out.exists() {
         return Err(GenerationFailure::ManifestExists { path: out });
     }
+    // Read here, before a model is asked anything, for two reasons: a candidate a
+    // person has already dismissed is one this generation must not record, and a
+    // record of dismissals that cannot be read is a failure worth having before the
+    // first call rather than after the last one.
+    let dismissals = Dismissals::load(
+        &args
+            .suppressions
+            .clone()
+            .unwrap_or_else(|| args.project.join(DEFAULT_SUPPRESSIONS)),
+    )?;
     let file = SourceFile::new(
         args.file.clone(),
         read_target_file(&args.project, &args.file)?,
@@ -221,19 +236,28 @@ pub fn compose(
             file: args.file.clone(),
         });
     }
+    warn_about_stale(
+        &dismissals,
+        &args.file,
+        &String::from_utf8_lossy(&file.bytes),
+    );
     let chosen = choose(&report, &args.functions)?;
     let tests = covering_tests(&args.project, &args.tests)?;
     let mut functions = Vec::new();
     for function in &chosen {
         let target = Target::new(function, &report.functions);
         let request = ask_about(&file, &target, &tests, args.count)?;
-        let gathered = Round {
+        let mut gathered = Round {
             generator,
             file: &file,
             target: &target,
             inspect: &|mutant| check_with_the_pack(&env, &project, mutant),
         }
         .run(&request);
+        // After the round has finished asking and before anything about it is
+        // counted, so that the manifest, the console's tally, and the exit code all
+        // describe the same set of mutants.
+        set_aside_what_was_dismissed(&mut gathered, &dismissals);
         functions.push(FunctionOutcome {
             function: function.qualified_name.clone(),
             gathered,
@@ -291,6 +315,24 @@ fn write(
         recorded,
         tokens,
     })
+}
+
+/// Take out the mutants a person has already dismissed, and count them.
+///
+/// By the mutation and not by the identifier: an identifier is derived from the
+/// file's hash and would be orphaned by the next unrelated edit, so a decision keyed
+/// by one would stop applying without anybody deciding that it should.
+fn set_aside_what_was_dismissed(gathered: &mut Gathered, dismissals: &Dismissals) {
+    if dismissals.is_empty() {
+        return;
+    }
+    let before = gathered.mutants.len();
+    gathered.mutants.retain(|mutant| {
+        dismissals
+            .covering(&mutant.file, &mutant.original, &mutant.replacement)
+            .is_none()
+    });
+    gathered.suppressed = before - gathered.mutants.len();
 }
 
 /// What one function is asked about.

@@ -22,7 +22,9 @@ use std::{
 use tremula_contracts::{
     SCHEMA_VERSION,
     capabilities::Capabilities,
+    manifest::Span,
     pack_error::{PackError as PackErrorDocument, Stage},
+    probe::ProbeReport,
     spans::SpansReport,
 };
 
@@ -40,6 +42,13 @@ pub const REQUIRED_SUBCOMMANDS: [&str; 3] = ["run", "collect", "validate"];
 /// is why it is not among the subcommands every run requires: a pack that predates
 /// this call still runs a manifest somebody else generated.
 pub const SPANS_SUBCOMMAND: &str = "spans";
+
+/// The one triage needs, on top of `spans`.
+///
+/// Held to the same rule for the same reason: a pack that cannot run a witness can
+/// still run a manifest, and refusing it a run over a call it will never be asked
+/// to make would be refusing it for nothing.
+pub const PROBE_SUBCOMMAND: &str = "probe";
 
 /// Where a run keeps what the pack printed.
 const PACK_LOG: &str = "pack.txt";
@@ -93,6 +102,16 @@ pub enum PackError {
     )]
     UnreadableSpans {
         /// The file that was asked about.
+        file: String,
+        /// Why the document could not be read.
+        reason: String,
+    },
+    /// The pack's answer about one witness was not that document.
+    #[error(
+        "the language pack's answer about running one input against `{file}` was not a report of what it observed ({reason}); update `{PACK_DISTRIBUTION}` in the target project"
+    )]
+    UnreadableProbe {
+        /// The file the witness was about.
         file: String,
         /// Why the document could not be read.
         reason: String,
@@ -168,6 +187,7 @@ fn meaning(stage: Stage) -> &'static str {
     match stage {
         Stage::Preflight => "the project's environment is not ready to run mutants",
         Stage::Spans => "the functions of a source file could not be read",
+        Stage::Probe => "one input could not be run against both versions of a function",
         Stage::Validate => "a mutant in the manifest is not valid for this language",
         Stage::Baseline => "your test suite failed before any mutants were tried",
         Stage::Plan => "the project layout could not be prepared",
@@ -208,6 +228,22 @@ pub fn handshake(env: &PythonEnv) -> Result<Capabilities, PackError> {
 /// may land in a file — which a generation has no way to find out for itself.
 pub fn handshake_for_generation(env: &PythonEnv) -> Result<Capabilities, PackError> {
     negotiate(env, &[SPANS_SUBCOMMAND])
+}
+
+/// Negotiate with the pack, requiring what triage needs as well.
+///
+/// Both of the extra calls are checked here rather than at the point of use, and
+/// before a model is paid for anything: triage asks the pack where a function is
+/// and then asks it to run one input against that function, and finding out at the
+/// second of those that the pack cannot would have spent a call per survivor to
+/// learn it.
+///
+/// # Errors
+///
+/// As [`handshake`], and additionally when the pack cannot say where a function is
+/// or cannot run one input against two versions of it.
+pub fn handshake_for_triage(env: &PythonEnv) -> Result<Capabilities, PackError> {
+    negotiate(env, &[SPANS_SUBCOMMAND, PROBE_SUBCOMMAND])
 }
 
 fn negotiate(env: &PythonEnv, also: &[&str]) -> Result<Capabilities, PackError> {
@@ -358,6 +394,61 @@ pub fn spans(env: &PythonEnv, project_root: &Path, file: &str) -> Result<SpansRe
     serde_json::from_str(&transcript.last_line().unwrap_or_default()).map_err(|err| {
         PackError::UnreadableSpans {
             file: file.to_owned(),
+            reason: err.to_string(),
+        }
+    })
+}
+
+/// What one probe is asked to run.
+#[derive(Debug)]
+pub struct ProbeRequest<'a> {
+    /// The root the file is found under, absolute. Triage passes a run's
+    /// `snapshot/`, so what is probed is the bytes the run was measured against
+    /// rather than whatever the working tree holds now.
+    pub root: &'a Path,
+    /// The file holding the function, POSIX-style and relative to that root.
+    pub file: &'a str,
+    /// The half-open byte range the mutation replaces.
+    pub span: Span,
+    /// The text to put in the span's place.
+    pub replacement: &'a str,
+    /// One call of the function, with literal arguments only.
+    pub call: &'a str,
+}
+
+/// Ask the pack to run one input against both versions of one function.
+///
+/// The answer is an observation and not a verdict: it says what each version did,
+/// and it is the caller that decides what that is worth. A witness the pack will
+/// not evaluate, a value it cannot compare, and a run it had to kill all come back
+/// as an answer rather than as a failure, because each of those is a fact about the
+/// witness and the pack was right to report it.
+///
+/// # Errors
+///
+/// Returns [`PackError`] when the pack cannot be started, refuses the file or the
+/// span, could not import either version, or answers with something that is not a
+/// probe report.
+pub fn probe(env: &PythonEnv, request: &ProbeRequest<'_>) -> Result<ProbeReport, PackError> {
+    let mut command = pack_command(env);
+    command
+        .arg(PROBE_SUBCOMMAND)
+        .args(["--file", request.file])
+        .args(["--project".as_ref(), request.root.as_os_str()])
+        .args([
+            "--span".to_owned(),
+            format!("{}:{}", request.span.start_byte, request.span.end_byte),
+        ])
+        .args(["--replacement", request.replacement])
+        .args(["--call", request.call])
+        .current_dir(neutral());
+    let transcript = drive(env, command, None, false, &unwatched)?;
+    if !transcript.succeeded() {
+        return Err(transcript.into_failure(None));
+    }
+    serde_json::from_str(&transcript.last_line().unwrap_or_default()).map_err(|err| {
+        PackError::UnreadableProbe {
+            file: request.file.to_owned(),
             reason: err.to_string(),
         }
     })

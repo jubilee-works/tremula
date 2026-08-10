@@ -24,8 +24,25 @@ use assert_cmd::Command;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
-use tremula::validation::canonical_mutant_id;
-use tremula_contracts::{baseline::Baseline, manifest::Span, report::Report, results::Results};
+use tremula::{
+    generate::{
+        Attempt,
+        judge::{
+            Claim, EquivalenceJudge, JudgeError, Judgement, JudgementOutcome, JudgementRequest,
+            Witness,
+        },
+    },
+    triage::{TriageArgs, assess},
+    validation::canonical_mutant_id,
+};
+use tremula_contracts::{
+    baseline::Baseline,
+    manifest::Span,
+    probe::ProbeOutcome,
+    report::Report,
+    results::Results,
+    triage::{Classification, Undecided},
+};
 
 /// One mutation, spelled the way a person would describe it.
 struct Mutation {
@@ -443,4 +460,128 @@ fn a_run_started_while_another_holds_the_project_is_refused() {
     assert_eq!(output.status.code(), Some(2));
     let complaint = stderr(&output);
     assert!(complaint.contains("in progress"), "{complaint}");
+}
+
+/// A judge that answers with one prepared judgement, however often it is asked.
+///
+/// The model is replaced and nothing else is: the run below is the real binary, the
+/// pack is the real pack, and the witness really is executed against the two real
+/// versions of the file the run snapshotted. What a live model would add here is
+/// the one thing this suite cannot depend on — that it says the same thing twice.
+struct OneAnswer(Judgement);
+
+impl EquivalenceJudge for OneAnswer {
+    fn judge(&self, _request: &JudgementRequest) -> Result<JudgementOutcome, JudgeError> {
+        Ok(JudgementOutcome {
+            judgement: self.0.clone(),
+            model_resolved: "a-model-2026-01-01".to_owned(),
+            attempts: vec![Attempt::default()],
+        })
+    }
+}
+
+/// A claim of a difference, standing on one call.
+fn claiming(call: &str) -> OneAnswer {
+    OneAnswer(Judgement {
+        claim: Claim::Distinguishable,
+        witness: Some(Witness {
+            call: call.to_owned(),
+            expect_original: "one thing".to_owned(),
+            expect_mutant: "another".to_owned(),
+        }),
+    })
+}
+
+/// What a person would type to triage the run that just happened.
+fn triaging(fixture: &Fixture) -> TriageArgs {
+    TriageArgs {
+        run: Some(fixture.run_dir()),
+        project: fixture.project(),
+        python: Some(interpreter()),
+        model: "a-model-2026-01-01".to_owned(),
+        suppressions: None,
+    }
+}
+
+/// The survivor of a real run, taken all the way to a classification: the run
+/// directory's own three documents, the real pack, and one input really executed
+/// against the two versions of the file the run kept.
+#[test]
+fn a_real_runs_survivor_is_distinguished_by_an_input_that_is_really_executed() {
+    let fixture = Fixture::copy("sample_project");
+    fixture.with_manifest(&[
+        Mutation {
+            file: "schedule.py",
+            original: "other_start < end",
+            replacement: "other_start <= end",
+        },
+        Mutation {
+            file: "schedule.py",
+            original: "minutes >= 60",
+            replacement: "minutes > 60",
+        },
+    ]);
+    let output = fixture.run(&[]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+
+    let judged = assess(&triaging(&fixture), &claiming("needs_break(60)")).unwrap();
+
+    assert_eq!(
+        judged.entries.len(),
+        1,
+        "one survivor, and the kill is not one"
+    );
+    let entry = &judged.entries[0];
+    assert_eq!(entry.original, "minutes >= 60");
+    assert_eq!(
+        entry.classification,
+        Classification::DistinguishedAtFunctionLevel
+    );
+    let probe = entry.probe.as_ref().expect("the evidence travels with it");
+    assert_eq!(probe.outcome, ProbeOutcome::Differs);
+    assert_eq!(
+        probe
+            .original
+            .as_ref()
+            .and_then(|side| side.value.as_deref()),
+        Some("True")
+    );
+    assert_eq!(
+        probe.mutant.as_ref().and_then(|side| side.value.as_deref()),
+        Some("False")
+    );
+    assert_eq!(judged.run.run_id, fixture.report().run.run_id);
+    // And it is on disk beside the report, which is itself untouched.
+    let document = fs::read_to_string(fixture.run_dir().join("triage.json")).unwrap();
+    assert!(
+        document.contains("distinguished_at_function_level"),
+        "{document}"
+    );
+    assert_eq!(
+        fixture.report().score.survived,
+        1,
+        "report.json is not rewritten"
+    );
+}
+
+/// The same run, and a witness that does not separate anything. The measured
+/// failure mode, end to end: the classification must not become a suspicion of
+/// equivalence just because one input found nothing.
+#[test]
+fn a_witness_that_finds_nothing_leaves_a_real_survivor_undecided() {
+    let fixture = Fixture::copy("sample_project");
+    fixture.with_manifest(&[Mutation {
+        file: "schedule.py",
+        original: "minutes >= 60",
+        replacement: "minutes > 60",
+    }]);
+    let output = fixture.run(&[]);
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+
+    let judged = assess(&triaging(&fixture), &claiming("needs_break(120)")).unwrap();
+
+    let entry = &judged.entries[0];
+    assert_eq!(entry.classification, Classification::Undecided);
+    assert_eq!(entry.undecided, Some(Undecided::WitnessShowedNoDifference));
+    assert_eq!(judged.score.suspected_equivalent, 0);
 }

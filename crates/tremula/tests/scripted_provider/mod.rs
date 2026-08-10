@@ -17,7 +17,11 @@ use std::{
 };
 
 use serde_json::{Value, json};
-use tremula::generate::{CoveringTest, GenerationRequest, openai::OpenAiGenerator};
+use tremula::generate::{
+    CoveringTest, GenerationRequest,
+    judge::JudgementRequest,
+    openai::{OpenAiGenerator, judge::OpenAiJudge},
+};
 
 /// The model every scripted call names.
 pub const MODEL: &str = "gpt-5.2-2025-12-11";
@@ -131,6 +135,13 @@ impl Provider {
             .with_timeout(Duration::from_millis(600))
     }
 
+    /// A judge pointed at the same socket, over the same transport.
+    pub fn judge(&self) -> OpenAiJudge {
+        OpenAiJudge::new(MODEL)
+            .with_endpoint(self.endpoint.clone())
+            .with_timeout(Duration::from_millis(600))
+    }
+
     /// How many calls arrived.
     pub fn calls(&self) -> usize {
         self.seen.lock().unwrap().len()
@@ -204,6 +215,29 @@ pub fn envelope(content: &str, finish: &str) -> String {
         "usage": {"prompt_tokens": 682, "completion_tokens": 436, "total_tokens": 1118},
     })
     .to_string()
+}
+
+/// A well-formed judgement, with or without a witness in it.
+pub fn judgement(claim: &str, call: Option<&str>) -> String {
+    let witness = match call {
+        Some(call) => json!({
+            "call": call,
+            "expect_original": "False",
+            "expect_mutant": "True",
+        }),
+        None => Value::Null,
+    };
+    json!({ "claim": claim, "witness": witness }).to_string()
+}
+
+/// The mutation every judgement test asks about.
+pub fn judgement_request() -> JudgementRequest {
+    JudgementRequest {
+        file: "ranges.py".to_owned(),
+        source: "def overlaps(start, end, other_start, other_end):\n    return start < other_end and other_start < end\n".to_owned(),
+        original: "start < other_end".to_owned(),
+        replacement: "start <= other_end".to_owned(),
+    }
 }
 
 /// The request every test asks about.

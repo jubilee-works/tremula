@@ -10,6 +10,7 @@ use crate::{
     generate::choose::AT,
     pack::PackError,
     python_env::EnvError,
+    suppressions::SuppressionError,
     validation::{TargetFileError, ValidationError},
 };
 
@@ -28,6 +29,9 @@ pub enum GenerationFailure {
     /// The file to mutate cannot be used.
     #[error(transparent)]
     TargetFile(#[from] TargetFileError),
+    /// The record of what a person has dismissed cannot be used.
+    #[error(transparent)]
+    Suppressions(#[from] SuppressionError),
     /// The project's Python could not be used.
     #[error(transparent)]
     Environment(#[from] EnvError),

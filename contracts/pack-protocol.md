@@ -112,6 +112,78 @@ right about and the project cannot take:
 precedence makes any `not_applied` entry exit 2, so a batch preserved this way is
 still a run that says something went wrong.
 
+### `probe --file <path> --project <dir> --span <start>:<end> --replacement <text> --call <text> [--timeout <seconds>]`
+
+Run one call against both versions of one function — the file as it stands, and the
+file with the span replaced — and report what each version did. Print one
+`probe.schema.json` document as the last line of stdout and exit 0, or 2 on
+failure. Nothing is written inside the project and no run directory is involved.
+
+The caller is deciding what a survivor is worth. What makes this call the pack's
+work rather than the core's is that running code is language knowledge: what a
+literal is, how a module is loaded, what it means for two values to be equal.
+
+`--project` is the root `--file` is relative to, and it need not be a working tree.
+The core points it at a run's `snapshot/`, so the bytes probed are the bytes the run
+was measured against, whatever has happened to the working tree since. `--span` is
+the half-open byte range of the mutation, into those same bytes. The mutant side is
+produced by the pack's one splice, so it is byte for byte the file a run applies.
+
+`--call` is one call of the function, by the name its `def` gives it, and every
+argument is a literal — a constant, or a list, tuple, set or dict built out of
+constants, with a leading `-` allowed on a number. An attribute, a name from the
+module, a call inside the call, an unpacking, or an arithmetic expression is
+refused, and no part of a witness is ever executed as code: the arguments are read,
+not evaluated. Only a function the module defines at its own top level is probed; a
+method has no receiver a witness could name.
+
+**This is not a sandbox and does not claim to be one.** The function's own body
+executes, mutated, which is exactly what happens when `run` applies a mutant and
+calls the suite. The threat model is that one, unchanged. What is new is only the
+refusal to execute the witness itself.
+
+#### How the two versions are compared
+
+Each version is run **three times, in a subprocess of its own each time**, with
+`PYTHONHASHSEED` fixed to `0` and almost nothing else in the environment. Three
+because a version that does not agree with itself cannot be compared with anything;
+in separate processes because two copies of one module in one process disagree for
+reasons that have nothing to do with the mutation. The children are not started
+with `-I`: that flag implies ignoring the environment, and the hash seed is part of
+the environment.
+
+What counts as the same result:
+
+- **A value** is the same when its type is the same and its content is the same.
+  Content is compared by a rendering built from the value's parts rather than by
+  `repr` alone, so a set or a dict does not differ because it was built in another
+  order. `nan` is treated as equal to `nan`: a function that returns it both times
+  has not been told apart by this input. A member of an enumeration is compared by
+  its name. A value whose type compares by identity rather than by content is
+  `undecided (incomparable)` — two of those made in two processes are neither equal
+  nor unequal, and calling them either would be inventing a fact. Any other value
+  is compared by the language's own rendering of it.
+- **An exception** is compared by its type and its message. The traceback is not
+  compared: the two versions have different line numbers by construction.
+- **A version that returned and a version that raised** always differ.
+- **Standard output is captured and compared** as part of the result, so a function
+  whose only observable effect is printing is not a blind spot. What either version
+  prints while it is being imported is not part of that: an import is not the call.
+
+`outcome` is `differs`, `indistinguishable`, or `undecided`, and when it is
+`undecided` the `undecided` field says which of these it was: `nondeterministic`,
+`incomparable`, `unsafe_witness`, `method`, `no_such_function`, `timed_out`.
+
+**`indistinguishable` is not a finding of equivalence.** One input failed to tell
+two functions apart. The claim it fails to support was a claim about every input,
+and no number of inputs that fail to separate two functions adds up to a proof that
+none can.
+
+**And `differs` is a difference at the level of the function.** Both versions are
+called directly, so what the program around them can reach is not established here
+and is not claimed. Whether a difference inside a function is a difference a caller
+could ever produce is a judgement, and nothing in this document makes it.
+
 ### `collect --out <run-dir>`
 
 Rebuild `results.json` from the backend state already present in the run
@@ -207,15 +279,15 @@ of stdout and exits 2:
 }
 ```
 
-`stage` is one of `preflight`, `spans`, `validate`, `baseline`, `plan`, `execute`,
-`collect`, and tells the core how far the pack got. `code` is a stable
+`stage` is one of `preflight`, `spans`, `probe`, `validate`, `baseline`, `plan`,
+`execute`, `collect`, and tells the core how far the pack got. `code` is a stable
 machine-readable identifier; `message` is for humans and carries no contract.
 
 A consumer that meets a stage it does not know reads it as `unknown` rather than
 refusing the report: what went wrong is in `code` and `message`, and losing those
 to a step named after the consumer was built would be the worse trade. The schema
 holds `stage` to being a string and no more, so validating a report before parsing
-it does not undo that tolerance; the seven names above are recorded in the field's
+it does not undo that tolerance; the eight names above are recorded in the field's
 description rather than as values a validator enforces.
 
 ### Failure codes
@@ -283,6 +355,19 @@ asked for:
 - `project_root_unresolvable` — `--project` does not resolve, or is not a directory.
 - `unpositioned_node` — the parser reported a node with no position, so no span of
   this file can be trusted. A defect in the pack, reported as one.
+
+Running one input against both versions of a function. The file `probe` was asked
+for is held to every check in the list above it, under this stage instead, and
+these are its own:
+
+- `span_outside_file` — the byte range is not a range of bytes that file has.
+- `probe_not_started` — a version could not be run as a subprocess at all.
+- `probe_said_nothing` — a version ran and printed no account of what it observed,
+  which is a defect in the pack, reported as one.
+- `probe_import_failed` — a version of the file could not be imported, so there was
+  nothing to call. A file neither version can load is a file nothing can be
+  measured on, and an import that ends the process — a bare `sys.exit` at module
+  level — arrives here rather than as a difference.
 
 And two that belong to no step, because either can end any of them:
 

@@ -152,6 +152,7 @@ impl Fixture {
             project: self.project(),
             count: 4,
             out: None,
+            suppressions: None,
         }
     }
 

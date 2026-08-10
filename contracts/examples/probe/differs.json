@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.1",
+  "file": "ranges.py",
+  "call": "overlaps(0, 30, 30, 60)",
+  "outcome": "differs",
+  "original": {
+    "ended": "returned",
+    "value": "False",
+    "type_name": "bool",
+    "stdout": ""
+  },
+  "mutant": {
+    "ended": "returned",
+    "value": "True",
+    "type_name": "bool",
+    "stdout": ""
+  },
+  "runs_per_side": 3
+}

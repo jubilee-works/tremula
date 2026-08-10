@@ -12,9 +12,12 @@ use tremula_contracts::{
     capabilities::Capabilities,
     manifest::Manifest,
     pack_error::{PackError, Stage},
+    probe::{ProbeOutcome, ProbeReport},
     report::Report,
     results::Results,
     spans::{ExcludedKind, SpansReport},
+    suppressions::{DismissalReason, Suppressions},
+    triage::{Classification, Triage},
 };
 
 fn contracts_path(relative: &str) -> PathBuf {
@@ -81,6 +84,15 @@ fn valid_examples_are_accepted() {
     accepts::<SpansReport>("spans/simple.json", "spans.schema.json");
     accepts::<SpansReport>("spans/decorated.json", "spans.schema.json");
     accepts::<SpansReport>("spans/async_nested.json", "spans.schema.json");
+    accepts::<ProbeReport>("probe/differs.json", "probe.schema.json");
+    accepts::<ProbeReport>("probe/no-difference.json", "probe.schema.json");
+    accepts::<ProbeReport>("probe/undecided.json", "probe.schema.json");
+    accepts::<ProbeReport>("probe/raised.json", "probe.schema.json");
+    accepts::<Triage>("triage/survivors.json", "triage.schema.json");
+    accepts::<Suppressions>(
+        "suppressions/two-decisions.json",
+        "suppressions.schema.json",
+    );
 }
 
 #[test]
@@ -121,6 +133,18 @@ fn unknown_fields_in_a_spans_report_are_ignored() {
         .expect("additive fields must not break existing consumers");
 }
 
+/// A probe report is read by the core alone, and the must-ignore rule holds for it
+/// as much as for a document both sides read: a pack that learns to say more about
+/// what it observed must not break the core that asked it.
+#[test]
+fn unknown_fields_in_a_probe_report_are_ignored() {
+    let mut instance = read_json("examples/probe/differs.json");
+    instance["future_field"] = serde_json::json!(42);
+    instance["original"]["future_field"] = serde_json::json!("a repr of something");
+    serde_json::from_value::<ProbeReport>(instance)
+        .expect("additive fields must not break existing consumers");
+}
+
 /// Every enum a producer may extend carries an `Unknown` fallback, which makes a
 /// new variant as additive as a new field: a consumer built before the value
 /// existed reads it rather than rejecting the whole document.
@@ -135,6 +159,21 @@ fn enum_values_this_consumer_does_not_know_are_read_as_unknown() {
     failure["error"]["stage"] = serde_json::json!("a_step_invented_later");
     let parsed: PackError = serde_json::from_value(failure).unwrap();
     assert_eq!(parsed.error.stage, Stage::Unknown);
+
+    let mut probe = read_json("examples/probe/differs.json");
+    probe["outcome"] = serde_json::json!("a_verdict_invented_later");
+    let parsed: ProbeReport = serde_json::from_value(probe).unwrap();
+    assert_eq!(parsed.outcome, ProbeOutcome::Unknown);
+
+    let mut judged = read_json("examples/triage/survivors.json");
+    judged["entries"][0]["classification"] = serde_json::json!("a_grade_invented_later");
+    let parsed: Triage = serde_json::from_value(judged).unwrap();
+    assert_eq!(parsed.entries[0].classification, Classification::Unknown);
+
+    let mut decided = read_json("examples/suppressions/two-decisions.json");
+    decided["suppressions"][0]["reason"] = serde_json::json!("a_reason_invented_later");
+    let parsed: Suppressions = serde_json::from_value(decided).unwrap();
+    assert_eq!(parsed.suppressions[0].reason, DismissalReason::Unknown);
 }
 
 /// The fallback is worth nothing if the published schema contradicts it. A
@@ -153,6 +192,12 @@ fn a_schema_accepts_an_enum_value_it_does_not_name() {
     failure["error"]["stage"] = serde_json::json!("a_step_invented_later");
     if let Err(error) = validator("pack-error.schema.json").validate(&failure) {
         panic!("a stage invented later must validate: {error}");
+    }
+
+    let mut probe = read_json("examples/probe/differs.json");
+    probe["outcome"] = serde_json::json!("a_verdict_invented_later");
+    if let Err(error) = validator("probe.schema.json").validate(&probe) {
+        panic!("an outcome invented later must validate: {error}");
     }
 }
 
@@ -196,6 +241,7 @@ fn a_schema_still_names_the_enum_values_this_version_defines() {
             &[
                 "preflight",
                 "spans",
+                "probe",
                 "validate",
                 "baseline",
                 "plan",
@@ -209,6 +255,60 @@ fn a_schema_still_names_the_enum_values_this_version_defines() {
             "ExcludedKind",
             &["docstring", "annotation", "unknown"][..],
         ),
+        (
+            "probe.schema.json",
+            "ProbeOutcome",
+            &["differs", "indistinguishable", "undecided", "unknown"][..],
+        ),
+        (
+            "probe.schema.json",
+            "Undecided",
+            &[
+                "nondeterministic",
+                "incomparable",
+                "unsafe_witness",
+                "method",
+                "no_such_function",
+                "timed_out",
+                "unknown",
+            ][..],
+        ),
+        (
+            "probe.schema.json",
+            "Ending",
+            &["returned", "raised", "unknown"][..],
+        ),
+        (
+            "suppressions.schema.json",
+            "DismissalReason",
+            &["equivalent", "not_useful", "unknown"][..],
+        ),
+        (
+            "triage.schema.json",
+            "Classification",
+            &[
+                "distinguished_at_function_level",
+                "suspected_equivalent",
+                "undecided",
+                "unknown",
+            ][..],
+        ),
+        (
+            "triage.schema.json",
+            "Undecided",
+            &[
+                "no_witness",
+                "witness_showed_no_difference",
+                "nondeterministic",
+                "incomparable",
+                "unsafe_witness",
+                "method",
+                "no_such_function",
+                "timed_out",
+                "no_judgement",
+                "unknown",
+            ][..],
+        ),
     ] {
         let schema = read_json(&format!("schemas/{schema_file}"));
         let described = schema["$defs"][definition]["description"]
@@ -221,6 +321,31 @@ fn a_schema_still_names_the_enum_values_this_version_defines() {
             );
         }
     }
+}
+
+/// The counts in a triage partition its entries, the same way a report's do.
+#[test]
+fn the_triage_score_agrees_with_its_entries() {
+    let judged: Triage =
+        serde_json::from_value(read_json("examples/triage/survivors.json")).unwrap();
+    let score = judged.score;
+    assert_eq!(
+        score.survivors,
+        u32::try_from(judged.entries.len()).unwrap()
+    );
+    assert_eq!(
+        score.survivors,
+        score.distinguished_at_function_level + score.suspected_equivalent + score.undecided,
+        "every entry is classified exactly once"
+    );
+    assert!(
+        judged
+            .entries
+            .iter()
+            .all(|entry| (entry.classification == Classification::Undecided)
+                == entry.undecided.is_some()),
+        "a reason belongs to an undecided entry and to no other"
+    );
 }
 
 #[test]

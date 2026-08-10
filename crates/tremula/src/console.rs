@@ -7,6 +7,7 @@ use tremula_contracts::{
     baseline::Baseline,
     report::{MutantVerdict, Report, Score, Verdict},
     runner::RunnerResult,
+    triage::{Classification, Triage, TriageEntry},
 };
 
 use crate::generate::command::{Generated, exit_code};
@@ -24,6 +25,9 @@ const COLUMN_GAP: usize = 2;
 
 /// Indent that sets the table apart from the summary lines.
 const TABLE_INDENT: &str = "  ";
+
+/// How much of a stretch of source is shown before it is cut short.
+const QUOTED_SOURCE: usize = 72;
 
 /// The one thing a reader must not misunderstand about a survived mutant.
 const SURVIVED_NOTE: &str =
@@ -93,6 +97,9 @@ pub fn render_generation(generated: &Generated) -> String {
         if gathered.duplicates > 0 {
             let _ = write!(line, " · {} repeated", gathered.duplicates);
         }
+        if gathered.suppressed > 0 {
+            let _ = write!(line, " · {} suppressed", gathered.suppressed);
+        }
         if !gathered.refused.is_empty() {
             let refused: Vec<String> = gathered
                 .refused
@@ -125,6 +132,108 @@ pub fn render_generation(generated: &Generated) -> String {
         generation_exit_reason(generated)
     ));
     lines.join("\n")
+}
+
+/// Render what a triage made of a run's survivors.
+///
+/// The order is the point of the whole command. The survivors one input separated
+/// come first and come with their evidence, because those are the ones worth a
+/// person's next minute; then the ones nothing was established about, with the
+/// reason, because a reason is what says whether looking again would help; then the
+/// ones a model called equivalent, which are last because the only thing behind
+/// them is that a model said so.
+#[must_use]
+pub fn render_triage(judged: &Triage) -> String {
+    let score = judged.score;
+    let mut lines = vec![
+        format!(
+            "tremula triage · run {} · {} survivor(s) · model: {}",
+            judged.run.run_id, score.survivors, judged.judge.model
+        ),
+        String::new(),
+    ];
+    for (classification, heading) in [
+        (
+            Classification::DistinguishedAtFunctionLevel,
+            "distinguished at function level",
+        ),
+        (Classification::Undecided, "undecided"),
+        (Classification::SuspectedEquivalent, "suspected equivalent"),
+    ] {
+        let listed: Vec<&TriageEntry> = judged
+            .entries
+            .iter()
+            .filter(|entry| entry.classification == classification)
+            .collect();
+        if listed.is_empty() {
+            continue;
+        }
+        lines.push(format!("{heading} ({}):", listed.len()));
+        for entry in listed {
+            lines.push(format!(
+                "  {}  {}  {}–{}",
+                entry
+                    .mutant_id
+                    .chars()
+                    .take(SHORT_ID_CHARS)
+                    .collect::<String>(),
+                entry.file,
+                entry.span.start_byte,
+                entry.span.end_byte
+            ));
+            lines.push(format!(
+                "    {} → {}",
+                one_line(&entry.original),
+                one_line(&entry.replacement)
+            ));
+            lines.push(format!("    {}", entry.detail));
+        }
+        lines.push(String::new());
+    }
+    if !judged.dismissed.is_empty() {
+        lines.push(format!(
+            "already dismissed ({}), not asked about again:",
+            judged.dismissed.len()
+        ));
+        for decision in &judged.dismissed {
+            lines.push(format!(
+                "  {}  {}  {} → {}",
+                decision
+                    .mutant_id
+                    .chars()
+                    .take(SHORT_ID_CHARS)
+                    .collect::<String>(),
+                decision.file,
+                one_line(&decision.original),
+                one_line(&decision.replacement)
+            ));
+        }
+        lines.push(String::new());
+    }
+    lines.push(format!(
+        "score: {} distinguished at function level · {} suspected equivalent · {} undecided",
+        score.distinguished_at_function_level, score.suspected_equivalent, score.undecided
+    ));
+    for caveat in &judged.caveats {
+        lines.push(format!("note: {caveat}"));
+    }
+    lines.push(format!(
+        "tokens: {} prompt · {} completion · {} total over {} call(s)",
+        judged.spend.prompt_tokens,
+        judged.spend.completion_tokens,
+        judged.spend.total_tokens,
+        judged.spend.calls
+    ));
+    lines.join("\n")
+}
+
+/// A stretch of source as one line, so a table stays a table.
+fn one_line(source: &str) -> String {
+    let joined = source.split_whitespace().collect::<Vec<_>>().join(" ");
+    match joined.char_indices().nth(QUOTED_SOURCE) {
+        Some((cut, _)) => format!("{}…", &joined[..cut]),
+        None => joined,
+    }
 }
 
 /// Why a generation exits the way it does, in the order the exit code decides it.

@@ -1,0 +1,112 @@
+{
+  "schema_version": "0.1",
+  "run": {
+    "run_id": "20260810T090000Z-abc123",
+    "report": "report.json",
+    "judged_at": "2026-08-10T09:04:12Z"
+  },
+  "judge": {
+    "model": "a-model-2026-01-01",
+    "model_resolved": "a-model-2026-01-01",
+    "prompt_version": "1"
+  },
+  "entries": [
+    {
+      "mutant_id": "0e2f8c1d5a4b6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
+      "file": "schedule.py",
+      "span": { "start_byte": 268, "end_byte": 281 },
+      "original": "minutes >= 60",
+      "replacement": "minutes > 60",
+      "classification": "distinguished_at_function_level",
+      "claim": "distinguishable",
+      "witness": {
+        "call": "needs_break(60)",
+        "expect_original": "True",
+        "expect_mutant": "False"
+      },
+      "probe": {
+        "schema_version": "0.1",
+        "file": "schedule.py",
+        "call": "needs_break(60)",
+        "outcome": "differs",
+        "original": {
+          "ended": "returned",
+          "value": "True",
+          "type_name": "bool",
+          "stdout": ""
+        },
+        "mutant": {
+          "ended": "returned",
+          "value": "False",
+          "type_name": "bool",
+          "stdout": ""
+        },
+        "runs_per_side": 3
+      },
+      "detail": "`needs_break(60)` told the two apart: True against False"
+    },
+    {
+      "mutant_id": "1f3a9d2e6b5c7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708",
+      "file": "schedule.py",
+      "span": { "start_byte": 141, "end_byte": 158 },
+      "original": "other_start < end",
+      "replacement": "other_start < end and True",
+      "classification": "suspected_equivalent",
+      "claim": "equivalent",
+      "detail": "the model said the mutation cannot change what the function does, and nothing ran to check that"
+    },
+    {
+      "mutant_id": "2a4b0e3f7c6d8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70819",
+      "file": "schedule.py",
+      "span": { "start_byte": 268, "end_byte": 281 },
+      "original": "minutes >= 60",
+      "replacement": "minutes >= 61",
+      "classification": "undecided",
+      "undecided": "witness_showed_no_difference",
+      "claim": "distinguishable",
+      "witness": {
+        "call": "needs_break(120)",
+        "expect_original": "True",
+        "expect_mutant": "False"
+      },
+      "probe": {
+        "schema_version": "0.1",
+        "file": "schedule.py",
+        "call": "needs_break(120)",
+        "outcome": "indistinguishable",
+        "original": {
+          "ended": "returned",
+          "value": "True",
+          "type_name": "bool",
+          "stdout": ""
+        },
+        "mutant": {
+          "ended": "returned",
+          "value": "True",
+          "type_name": "bool",
+          "stdout": ""
+        },
+        "runs_per_side": 3
+      },
+      "detail": "`needs_break(120)` did not tell the two apart, which is not evidence that nothing would"
+    }
+  ],
+  "score": {
+    "survivors": 3,
+    "distinguished_at_function_level": 1,
+    "suspected_equivalent": 1,
+    "undecided": 1
+  },
+  "spend": {
+    "calls": 3,
+    "prompt_tokens": 912,
+    "completion_tokens": 121,
+    "total_tokens": 1033
+  },
+  "caveats": [
+    "distinguished_at_function_level = one input separated the two versions of the function; whether the program around it can reach that input is unverified",
+    "suspected_equivalent = a model said the mutation changes nothing, and nothing ran to check it",
+    "an input that showed no difference is not evidence that no input would",
+    "nothing here retires a survivor: every one of them is still for a person to accept or dismiss"
+  ]
+}

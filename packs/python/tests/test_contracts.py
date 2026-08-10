@@ -18,9 +18,12 @@ from tremula_python.contracts import (
     Language,
     Manifest,
     PackError,
+    ProbeOutcome,
+    ProbeReport,
     Results,
     SpansReport,
     Stage,
+    Undecided,
 )
 
 CONTRACTS = Path(__file__).resolve().parents[3] / "contracts"
@@ -39,6 +42,10 @@ CASES: list[tuple[str, type[BaseModel], str]] = [
     ("spans/simple.json", SpansReport, "spans.schema.json"),
     ("spans/decorated.json", SpansReport, "spans.schema.json"),
     ("spans/async_nested.json", SpansReport, "spans.schema.json"),
+    ("probe/differs.json", ProbeReport, "probe.schema.json"),
+    ("probe/no-difference.json", ProbeReport, "probe.schema.json"),
+    ("probe/undecided.json", ProbeReport, "probe.schema.json"),
+    ("probe/raised.json", ProbeReport, "probe.schema.json"),
 ]
 
 # Every mirrored enum, and the `$defs` entry of the generated schema that
@@ -50,6 +57,8 @@ ENUMS: list[tuple[type[Enum], str, str]] = [
     (ExecutionStatus, "results.schema.json", "ExecutionStatus"),
     (Stage, "pack-error.schema.json", "Stage"),
     (ExcludedKind, "spans.schema.json", "ExcludedKind"),
+    (ProbeOutcome, "probe.schema.json", "ProbeOutcome"),
+    (Undecided, "probe.schema.json", "Undecided"),
 ]
 
 def _set_stage(document: dict[str, Any], value: object) -> None:
@@ -60,6 +69,10 @@ def _set_excluded_kind(document: dict[str, Any], value: object) -> None:
     document["functions"][1]["excluded"][0]["kind"] = value
 
 
+def _set_probe_outcome(document: dict[str, Any], value: object) -> None:
+    document["outcome"] = value
+
+
 # Every enum a newer producer may extend: an example carrying a value of it, the
 # schema that judges the example, and how to write another value in its place.
 # The mirror reads a name it does not know as `unknown`, so the schema has to
@@ -68,6 +81,7 @@ def _set_excluded_kind(document: dict[str, Any], value: object) -> None:
 OPEN_ENUMS: list[tuple[str, str, Callable[[dict[str, Any], object], None]]] = [
     ("pack-error/baseline-failed.json", "pack-error.schema.json", _set_stage),
     ("spans/decorated.json", "spans.schema.json", _set_excluded_kind),
+    ("probe/differs.json", "probe.schema.json", _set_probe_outcome),
 ]
 
 

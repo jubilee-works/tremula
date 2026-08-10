@@ -28,6 +28,7 @@ from tremula_python import (
     engine,
     plan_session,
     preflight,
+    probe,
     refusals,
     spans,
 )
@@ -253,6 +254,29 @@ def _spans(options: argparse.Namespace) -> int:
     return 0
 
 
+def _probe(options: argparse.Namespace) -> int:
+    """Run one input against both versions of one function, and say what happened.
+
+    There is no run directory and no file to write: the caller is deciding what a
+    survivor is worth, and the whole answer is the document on stdout. What the
+    caller points `--project` at is the root the file is found under, which for
+    triage is a run's snapshot rather than the working tree — the bytes a run was
+    measured against cannot change afterwards, and the working tree can.
+    """
+    project_root: Path = options.project
+    with failures_as(Stage.PROBE):
+        witness = probe.Witness(
+            file=options.file,
+            start_byte=options.span[0],
+            end_byte=options.span[1],
+            replacement=options.replacement,
+            call=options.call,
+        )
+        document = probe.as_document(probe.probe(project_root, witness, options.timeout))
+    print(document)
+    return 0
+
+
 def _collect(options: argparse.Namespace) -> int:
     """Rebuild a run's results from its directory, executing nothing."""
     with failures_as(Stage.COLLECT):
@@ -341,7 +365,74 @@ def _parser() -> _Parser:
         help="project root the file path is relative to",
     )
     where.set_defaults(handler=_spans)
+
+    witness = subcommands.add_parser(
+        "probe",
+        help="run one call against both versions of a function and report what each did",
+    )
+    witness.add_argument(
+        "--file",
+        required=True,
+        metavar="PATH",
+        help="file holding the function, POSIX-style and relative to the project root",
+    )
+    witness.add_argument(
+        "--project",
+        type=Path,
+        required=True,
+        metavar="DIR",
+        help="root the file path is relative to; a run's `snapshot/` for triage",
+    )
+    witness.add_argument(
+        "--span",
+        type=_byte_span,
+        required=True,
+        metavar="START:END",
+        help="half-open byte range the mutation replaces, as `START:END`",
+    )
+    witness.add_argument(
+        "--replacement",
+        required=True,
+        metavar="TEXT",
+        help="source text to put in the span's place",
+    )
+    witness.add_argument(
+        "--call",
+        required=True,
+        metavar="TEXT",
+        help="one call of the function, with literal arguments only",
+    )
+    witness.add_argument(
+        "--timeout",
+        type=_positive_seconds,
+        default=probe.DEFAULT_TIMEOUT_SECONDS,
+        metavar="SECONDS",
+        help="time limit for one run of one version",
+    )
+    witness.set_defaults(handler=_probe)
     return parser
+
+
+def _byte_span(spelling: str) -> tuple[int, int]:
+    """A half-open byte range written `START:END`.
+
+    Refused unless both halves are whole numbers and the range holds something: an
+    empty span replaces nothing, and a probe of a mutation that changes no bytes is
+    a probe of two identical files.
+    """
+    start, _, end = spelling.partition(":")
+    try:
+        offsets = (int(start), int(end))
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"`{spelling}` is not a byte range; write it as `START:END`"
+        ) from None
+    if offsets[0] < 0 or offsets[1] <= offsets[0]:
+        raise argparse.ArgumentTypeError(
+            f"`{spelling}` is not a range with bytes in it; write it as `START:END`, "
+            "with END above START"
+        )
+    return offsets
 
 
 def _positive_seconds(spelling: str) -> float:

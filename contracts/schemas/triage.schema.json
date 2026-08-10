@@ -1,0 +1,485 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Triage",
+  "description": "The judged outcome of one run's survivors.",
+  "type": "object",
+  "properties": {
+    "caveats": {
+      "description": "Statements that must accompany any presentation of these classifications.\nWritten into the document rather than into a renderer, so that a reader who\nonly has the file still meets them.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dismissed": {
+      "description": "The survivors a person had already dismissed, which were not asked about at\nall. Listed rather than left out, because a reader comparing this document\nwith the run's report has to be able to account for every survivor in it.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Dismissed"
+      }
+    },
+    "entries": {
+      "description": "One entry per survivor, in the report's order.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/TriageEntry"
+      }
+    },
+    "judge": {
+      "description": "Who was asked about them, and what they were asked.",
+      "$ref": "#/$defs/Judge"
+    },
+    "run": {
+      "description": "Which run's survivors these are.",
+      "$ref": "#/$defs/TriageRun"
+    },
+    "schema_version": {
+      "description": "Contract version of this document.",
+      "type": "string"
+    },
+    "score": {
+      "description": "Aggregate counts, consistent with `entries`.",
+      "$ref": "#/$defs/TriageScore"
+    },
+    "spend": {
+      "description": "What the calls cost.",
+      "$ref": "#/$defs/Spend"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run",
+    "judge",
+    "entries",
+    "score",
+    "spend",
+    "caveats"
+  ],
+  "$defs": {
+    "Claim": {
+      "description": "What a model claimed about a mutation.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `distinguishable` — It said there is an input for which the two versions do different things.\n- `equivalent` — It said there is no such input.\n- `unknown` — A claim this consumer does not know, written by a newer producer.",
+      "type": "string"
+    },
+    "Classification": {
+      "description": "What was established about a survivor.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `distinguished_at_function_level` — One input was run against both versions of the function and they did different things. Whether the program can reach that input is unverified.\n- `suspected_equivalent` — A model said the mutation changes nothing, and nothing was run to check it.\n- `undecided` — No comparison was made. `undecided` says why.\n- `unknown` — A classification this consumer does not know, written by a newer producer.",
+      "type": "string"
+    },
+    "DismissalReason": {
+      "description": "Why a mutation was dismissed.\n\nTwo reasons, and the difference between them is worth keeping: one says the\nmutation could not have been caught by any test, and the other says it could and\nthat a test for it would not be worth having. Only the second is a statement\nabout what the project wants.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `equivalent` — It cannot change what the program does, so no test could have caught it.\n- `not_useful` — It can, and a test pinning that is not one this project wants.\n- `unknown` — A reason this consumer does not know, written by a newer producer.",
+      "type": "string"
+    },
+    "Dismissed": {
+      "description": "One survivor that was not judged, because a person had already dismissed it.",
+      "type": "object",
+      "properties": {
+        "dismissed_at": {
+          "description": "When they did, RFC 3339, as the suppression records it.",
+          "type": "string"
+        },
+        "file": {
+          "description": "Target file, POSIX-style and relative to the project root.",
+          "type": "string"
+        },
+        "mutant_id": {
+          "description": "The manifest mutant this is about.",
+          "type": "string"
+        },
+        "original": {
+          "description": "The text the mutation replaces.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why the person dismissed it.",
+          "$ref": "#/$defs/DismissalReason"
+        },
+        "replacement": {
+          "description": "The text it puts there.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mutant_id",
+        "file",
+        "original",
+        "replacement",
+        "reason",
+        "dismissed_at"
+      ]
+    },
+    "Ending": {
+      "description": "How a call ended.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `returned` — It returned a value.\n- `raised` — It raised an exception.\n- `unknown` — An ending this consumer does not know, reported by a newer pack.",
+      "type": "string"
+    },
+    "Judge": {
+      "description": "Who was asked, and what they were asked.",
+      "type": "object",
+      "properties": {
+        "model": {
+          "description": "The model that was asked, as the caller named it.",
+          "type": "string"
+        },
+        "model_resolved": {
+          "description": "The model that answered, as it named itself. Absent when none did.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "prompt_version": {
+          "description": "Which revision of the judging prompt was sent. A change in how survivors\nsort is traceable to a change in what was asked only if this is recorded.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "prompt_version"
+      ]
+    },
+    "Observation": {
+      "description": "What one version of the function did with the witness call.\n\nEvery field of it is the agreed account of several runs: a side that produced\ntwo different accounts is reported as nondeterministic instead, and never\narrives here.",
+      "type": "object",
+      "properties": {
+        "ended": {
+          "description": "How the call ended.",
+          "$ref": "#/$defs/Ending"
+        },
+        "message": {
+          "description": "The exception's own message, with no traceback in it: a traceback carries\nline numbers, and the two versions have different line numbers by\nconstruction.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stdout": {
+          "description": "Whatever the call wrote to standard output, captured and compared like any\nother observable result.",
+          "type": "string"
+        },
+        "type_name": {
+          "description": "The type of the returned value, or of the exception that was raised.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "description": "The value it returned, rendered by the language's own means, or absent when\nthe call raised instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ended",
+        "stdout"
+      ]
+    },
+    "ProbeOutcome": {
+      "description": "Whether one input told the two versions of a function apart.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `differs` — The two versions did observably different things on this input.\n- `indistinguishable` — They did the same thing on this input. Not a finding of equivalence: it is one input, and the claim it fails to support is a claim about all of them.\n- `undecided` — No comparison could be made. `undecided` says why.\n- `unknown` — An outcome this consumer does not know, reported by a newer pack.",
+      "type": "string"
+    },
+    "ProbeReport": {
+      "description": "The result of running one witness call against both versions of a function.",
+      "type": "object",
+      "properties": {
+        "call": {
+          "description": "The witness call, exactly as the caller wrote it.",
+          "type": "string"
+        },
+        "file": {
+          "description": "The file the function lives in, POSIX-style and relative to the root the\nprobe was pointed at. Echoed back so a caller can tell that the answer is\nabout the file it asked about.",
+          "type": "string"
+        },
+        "mutant": {
+          "description": "What the mutated function did, on the same terms.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Observation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "original": {
+          "description": "What the unmutated function did. Absent when it was never observed\nconsistently enough to describe, which is what a nondeterministic side\nmeans.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Observation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "description": "Whether the two versions did the same thing.",
+          "$ref": "#/$defs/ProbeOutcome"
+        },
+        "runs_per_side": {
+          "description": "How many times each version was run, each time in a subprocess of its own.\nMore than one because a side that disagrees with itself cannot be compared\nwith anything.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "schema_version": {
+          "description": "Contract version of this document.",
+          "type": "string"
+        },
+        "undecided": {
+          "description": "Why no comparison could be made. Present when, and only when, `outcome` is\n`undecided`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Undecided2"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "file",
+        "call",
+        "outcome",
+        "runs_per_side"
+      ]
+    },
+    "Span": {
+      "description": "A half-open byte range over a file's raw bytes: `[start_byte, end_byte)`.\nThat `start_byte` is below `end_byte` is a validation rule, not a schema\nconstraint.",
+      "type": "object",
+      "properties": {
+        "end_byte": {
+          "description": "Exclusive end offset.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "start_byte": {
+          "description": "Inclusive start offset, 0-indexed.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "start_byte",
+        "end_byte"
+      ]
+    },
+    "Spend": {
+      "description": "What the judging cost.",
+      "type": "object",
+      "properties": {
+        "calls": {
+          "description": "How many calls were made to the model, the failed ones included: a provider\ncharges for those too.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "completion_tokens": {
+          "description": "Tokens the answers cost.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "prompt_tokens": {
+          "description": "Tokens the prompts cost.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "total_tokens": {
+          "description": "What the provider reported as the sum.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "calls",
+        "prompt_tokens",
+        "completion_tokens",
+        "total_tokens"
+      ]
+    },
+    "TriageEntry": {
+      "description": "What became of one survivor.",
+      "type": "object",
+      "properties": {
+        "claim": {
+          "description": "What the model claimed, when one answered. A record of the question, not\nevidence for the classification.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Claim"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "classification": {
+          "description": "What was established about it.",
+          "$ref": "#/$defs/Classification"
+        },
+        "detail": {
+          "description": "One line for display, saying what happened in a person's terms. Not machine\nreadable: everything a machine reads is in the fields above.",
+          "type": "string"
+        },
+        "file": {
+          "description": "Target file, POSIX-style and relative to the project root.",
+          "type": "string"
+        },
+        "mutant_id": {
+          "description": "The manifest mutant this entry is about.",
+          "type": "string"
+        },
+        "original": {
+          "description": "The text it replaces, as the manifest holds it.",
+          "type": "string"
+        },
+        "probe": {
+          "description": "What happened when that input was run. Absent when none was run.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProbeReport"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "replacement": {
+          "description": "The text it puts there.",
+          "type": "string"
+        },
+        "span": {
+          "description": "The byte range the mutation replaces.",
+          "$ref": "#/$defs/Span"
+        },
+        "undecided": {
+          "description": "Why nothing was established. Present when, and only when, `classification`\nis `undecided`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Undecided"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "witness": {
+          "description": "The input the model offered, when it offered one. Kept whether or not it\nturned out to separate anything, because a witness that did not is the most\nuseful thing a reader of this document can see.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Witness"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "mutant_id",
+        "file",
+        "span",
+        "original",
+        "replacement",
+        "classification",
+        "detail"
+      ]
+    },
+    "TriageRun": {
+      "description": "The run this document is a second opinion on.",
+      "type": "object",
+      "properties": {
+        "judged_at": {
+          "description": "When the judging finished, RFC 3339.",
+          "type": "string"
+        },
+        "report": {
+          "description": "The document whose survivors were judged, relative to the run directory.\nNamed rather than assumed: this is a claim about that document's verdicts,\nand a reader has to be able to tell which one.",
+          "type": "string"
+        },
+        "run_id": {
+          "description": "Identifier shared with the run directory, the results, and the report.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "report",
+        "judged_at"
+      ]
+    },
+    "TriageScore": {
+      "description": "Aggregate counts over one triage. Every field is a plain count of `entries`.",
+      "type": "object",
+      "properties": {
+        "distinguished_at_function_level": {
+          "description": "Those one input separated at the level of the function.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "survivors": {
+          "description": "Survivors this document is about.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "suspected_equivalent": {
+          "description": "Those a model called equivalent, unchecked.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "undecided": {
+          "description": "Those nothing was established about.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "survivors",
+        "distinguished_at_function_level",
+        "suspected_equivalent",
+        "undecided"
+      ]
+    },
+    "Undecided": {
+      "description": "Why nothing was established about a survivor.\n\nLong, and every entry earns its place: what a person does next differs for each\nof these, and collapsing them into one \"unknown\" would leave every reader\nguessing which of them they had.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `no_witness` — The model claimed a difference and named no input a probe could run.\n- `witness_showed_no_difference` — The input it named was run, and the two versions did the same thing. This is **not** evidence of equivalence: one input failed to separate them, and the claim it fails to support was a claim about every input.\n- `nondeterministic` — A version of the function did not agree with itself across its own runs.\n- `incomparable` — A value came back that two processes cannot be said to agree about.\n- `unsafe_witness` — The input was not one a probe evaluates: an argument that is not a literal.\n- `method` — The name the input used is a method, which has no receiver a witness names.\n- `no_such_function` — The module defines no function of that name, so there was nothing to run.\n- `timed_out` — A version did not finish inside the time limit.\n- `no_judgement` — No judgement could be obtained at all — the model, or the pack, could not answer about this survivor. The one reason here that is about the tools rather than about the mutation.\n- `unknown` — A reason this consumer does not know, written by a newer producer.",
+      "type": "string"
+    },
+    "Undecided2": {
+      "description": "Why a probe could not compare the two versions.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `nondeterministic` — One version did not agree with itself across its own runs, so there is nothing stable to compare the other version against.\n- `incomparable` — A value came back whose type compares by identity rather than by content, so two of them made in two processes cannot be told equal or unequal.\n- `unsafe_witness` — The call was not the form a probe evaluates: an argument that is not a literal, or anything else the whitelist refuses.\n- `method` — The name the call uses is a method rather than a function of the module. A method needs a receiver, and nothing in a witness says what it should be.\n- `no_such_function` — The module defines no function of that name at all, so there was nothing to run — which is a fact about the witness, not about the mutation.\n- `timed_out` — One version did not finish inside the time limit, so what it would have done is unknown.\n- `unknown` — A reason this consumer does not know, reported by a newer pack.",
+      "type": "string"
+    },
+    "Witness": {
+      "description": "The input a model offered, as it offered it.",
+      "type": "object",
+      "properties": {
+        "call": {
+          "description": "One call of the function, with literal arguments.",
+          "type": "string"
+        },
+        "expect_mutant": {
+          "description": "What it expected the mutated function to do. Recorded, as above.",
+          "type": "string"
+        },
+        "expect_original": {
+          "description": "What the model expected the unmutated function to do with it.\n\nRecorded and never compared against what happened. A prediction of a result\nis not evidence about the result, and grading the prediction would be\ngrading the wrong thing — what the probe compares is the two results.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "expect_original",
+        "expect_mutant"
+      ]
+    }
+  }
+}

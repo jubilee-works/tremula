@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.1",
+  "file": "src/tremula_python/marker.py",
+  "call": "exit_class_of({})",
+  "outcome": "differs",
+  "original": {
+    "ended": "raised",
+    "type_name": "KeyError",
+    "message": "'timed_out'",
+    "stdout": ""
+  },
+  "mutant": {
+    "ended": "returned",
+    "value": "<ExitClass.OK: 'ok'>",
+    "type_name": "ExitClass",
+    "stdout": ""
+  },
+  "runs_per_side": 3
+}

@@ -80,6 +80,10 @@ pub struct Gathered {
     /// can be one mutant — the identifier is derived from the span and the
     /// replacement — and a manifest that carried it twice would be refused whole.
     pub duplicates: usize,
+    /// How many proposals a person had already dismissed. Taken out after the round
+    /// has finished asking and before anything is counted, so that the manifest and
+    /// every number the console prints agree about what was kept.
+    pub suppressed: usize,
     /// The model that answered, as it named itself. Absent when none did.
     pub model_resolved: Option<String>,
     /// Every attempt the generator was charged for, the failed ones included.

@@ -45,6 +45,11 @@ pub enum Stage {
     // safe for the calls where that reasoning does not hold.
     /// Reading a source file's functions, before any manifest exists.
     Spans,
+    // Reported only to whoever asked for a probe, on the same reasoning as the
+    // stage above it: a core that does not know the `probe` subcommand never calls
+    // it, and nothing in a run produces the stage.
+    /// Running one input against both versions of a function.
+    Probe,
     /// Language-level validation of the manifest.
     Validate,
     /// The unmutated reference run.

@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.1",
+  "file": "durations.py",
+  "call": "slots(90, 30)",
+  "outcome": "indistinguishable",
+  "original": {
+    "ended": "returned",
+    "value": "3",
+    "type_name": "int",
+    "stdout": ""
+  },
+  "mutant": {
+    "ended": "returned",
+    "value": "3",
+    "type_name": "int",
+    "stdout": ""
+  },
+  "runs_per_side": 3
+}

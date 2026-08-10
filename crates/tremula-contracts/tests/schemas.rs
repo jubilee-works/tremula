@@ -8,7 +8,8 @@ use std::{env, fs, path::PathBuf};
 use schemars::{JsonSchema, schema_for};
 use tremula_contracts::{
     baseline::Baseline, capabilities::Capabilities, manifest::Manifest, pack_error::PackError,
-    report::Report, results::Results, spans::SpansReport,
+    probe::ProbeReport, report::Report, results::Results, spans::SpansReport,
+    suppressions::Suppressions, triage::Triage,
 };
 
 /// Compare a generated schema against the committed file under `contracts/schemas/`.
@@ -74,4 +75,19 @@ fn pack_error_schema_is_up_to_date() {
 #[test]
 fn spans_schema_is_up_to_date() {
     assert_schema_matches::<SpansReport>("spans.schema.json");
+}
+
+#[test]
+fn probe_schema_is_up_to_date() {
+    assert_schema_matches::<ProbeReport>("probe.schema.json");
+}
+
+#[test]
+fn triage_schema_is_up_to_date() {
+    assert_schema_matches::<Triage>("triage.schema.json");
+}
+
+#[test]
+fn suppressions_schema_is_up_to_date() {
+    assert_schema_matches::<Suppressions>("suppressions.schema.json");
 }

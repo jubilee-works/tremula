@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProbeReport",
+  "description": "The result of running one witness call against both versions of a function.",
+  "type": "object",
+  "properties": {
+    "call": {
+      "description": "The witness call, exactly as the caller wrote it.",
+      "type": "string"
+    },
+    "file": {
+      "description": "The file the function lives in, POSIX-style and relative to the root the\nprobe was pointed at. Echoed back so a caller can tell that the answer is\nabout the file it asked about.",
+      "type": "string"
+    },
+    "mutant": {
+      "description": "What the mutated function did, on the same terms.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Observation"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "original": {
+      "description": "What the unmutated function did. Absent when it was never observed\nconsistently enough to describe, which is what a nondeterministic side\nmeans.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Observation"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "outcome": {
+      "description": "Whether the two versions did the same thing.",
+      "$ref": "#/$defs/ProbeOutcome"
+    },
+    "runs_per_side": {
+      "description": "How many times each version was run, each time in a subprocess of its own.\nMore than one because a side that disagrees with itself cannot be compared\nwith anything.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "schema_version": {
+      "description": "Contract version of this document.",
+      "type": "string"
+    },
+    "undecided": {
+      "description": "Why no comparison could be made. Present when, and only when, `outcome` is\n`undecided`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Undecided"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "file",
+    "call",
+    "outcome",
+    "runs_per_side"
+  ],
+  "$defs": {
+    "Ending": {
+      "description": "How a call ended.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `returned` — It returned a value.\n- `raised` — It raised an exception.\n- `unknown` — An ending this consumer does not know, reported by a newer pack.",
+      "type": "string"
+    },
+    "Observation": {
+      "description": "What one version of the function did with the witness call.\n\nEvery field of it is the agreed account of several runs: a side that produced\ntwo different accounts is reported as nondeterministic instead, and never\narrives here.",
+      "type": "object",
+      "properties": {
+        "ended": {
+          "description": "How the call ended.",
+          "$ref": "#/$defs/Ending"
+        },
+        "message": {
+          "description": "The exception's own message, with no traceback in it: a traceback carries\nline numbers, and the two versions have different line numbers by\nconstruction.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stdout": {
+          "description": "Whatever the call wrote to standard output, captured and compared like any\nother observable result.",
+          "type": "string"
+        },
+        "type_name": {
+          "description": "The type of the returned value, or of the exception that was raised.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "value": {
+          "description": "The value it returned, rendered by the language's own means, or absent when\nthe call raised instead.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ended",
+        "stdout"
+      ]
+    },
+    "ProbeOutcome": {
+      "description": "Whether one input told the two versions of a function apart.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `differs` — The two versions did observably different things on this input.\n- `indistinguishable` — They did the same thing on this input. Not a finding of equivalence: it is one input, and the claim it fails to support is a claim about all of them.\n- `undecided` — No comparison could be made. `undecided` says why.\n- `unknown` — An outcome this consumer does not know, reported by a newer pack.",
+      "type": "string"
+    },
+    "Undecided": {
+      "description": "Why a probe could not compare the two versions.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `nondeterministic` — One version did not agree with itself across its own runs, so there is nothing stable to compare the other version against.\n- `incomparable` — A value came back whose type compares by identity rather than by content, so two of them made in two processes cannot be told equal or unequal.\n- `unsafe_witness` — The call was not the form a probe evaluates: an argument that is not a literal, or anything else the whitelist refuses.\n- `method` — The name the call uses is a method rather than a function of the module. A method needs a receiver, and nothing in a witness says what it should be.\n- `no_such_function` — The module defines no function of that name at all, so there was nothing to run — which is a fact about the witness, not about the mutation.\n- `timed_out` — One version did not finish inside the time limit, so what it would have done is unknown.\n- `unknown` — A reason this consumer does not know, reported by a newer pack.",
+      "type": "string"
+    }
+  }
+}

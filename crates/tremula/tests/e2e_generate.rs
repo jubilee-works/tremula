@@ -420,6 +420,77 @@ impl MutantGenerator for MovesTheFile {
     }
 }
 
+/// A candidate somebody has dismissed is never recorded again.
+///
+/// The recording proposes four mutations of `overlaps`; one of them is dismissed
+/// before the generation runs, and the manifest comes back with three. The decision
+/// is written by hand rather than by `dismiss` because there is no run to look a
+/// mutant up in yet — which is itself the point of keying a decision by the mutation
+/// instead of by an identifier no manifest has produced.
+#[test]
+fn a_candidate_a_person_dismissed_is_not_recorded_again() {
+    let fixture = Fixture::copy();
+    let replay = Replay::of_overlaps();
+    let dismissed = "start <= other_end and other_start < end";
+    fs::write(
+        fixture
+            .project()
+            .join(tremula::suppressions::DEFAULT_SUPPRESSIONS),
+        serde_json::json!({
+            "schema_version": "0.1",
+            "suppressions": [{
+                "file": "ranges.py",
+                "original": OVERLAPPING_CONDITION,
+                "replacement": dismissed,
+                "reason": "not_useful",
+                "dismissed_at": "2026-08-10T09:12:00Z",
+            }],
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let generated = command::compose(&fixture.asking_about("overlaps"), &replay).unwrap();
+
+    assert_eq!(
+        generated.recorded, 3,
+        "the dismissed one of the four is gone"
+    );
+    assert_eq!(generated.functions[0].gathered.suppressed, 1);
+    assert_eq!(
+        generated.functions[0].gathered.proposed, 4,
+        "what the model proposed is still what it proposed"
+    );
+    let document = fs::read_to_string(fixture.manifest()).unwrap();
+    assert!(!document.contains(dismissed), "{document}");
+    let manifest: Manifest = serde_json::from_str(&document).unwrap();
+    assert_eq!(manifest.mutants.len(), 3);
+}
+
+/// A record of decisions that cannot be read stops a generation before it pays for
+/// anything.
+#[test]
+fn a_record_of_decisions_that_cannot_be_read_stops_a_generation_before_it_asks() {
+    let fixture = Fixture::copy();
+    let replay = Replay::of_overlaps();
+    fs::write(
+        fixture
+            .project()
+            .join(tremula::suppressions::DEFAULT_SUPPRESSIONS),
+        "{ not a document }",
+    )
+    .unwrap();
+
+    let failure = command::compose(&fixture.asking_about("overlaps"), &replay).unwrap_err();
+
+    assert!(
+        matches!(failure, GenerationFailure::Suppressions(_)),
+        "{failure}"
+    );
+    assert!(replay.asked().is_empty(), "nothing was asked of the model");
+    assert!(!fixture.manifest().exists());
+}
+
 /// One real generation about one function, skipped unless the environment names
 /// both a key and a model.
 ///

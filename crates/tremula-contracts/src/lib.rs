@@ -28,10 +28,13 @@ pub mod capabilities;
 pub mod manifest;
 mod open_enum;
 pub mod pack_error;
+pub mod probe;
 pub mod report;
 pub mod results;
 pub mod runner;
 pub mod spans;
+pub mod suppressions;
+pub mod triage;
 
 /// Version stamped into every contract document produced by this crate. The
 /// `contract_version` field in capability and pack metadata reports the same

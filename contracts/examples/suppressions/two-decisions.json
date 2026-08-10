@@ -1,0 +1,21 @@
+{
+  "schema_version": "0.1",
+  "suppressions": [
+    {
+      "file": "schedule.py",
+      "original": "minutes >= 60",
+      "replacement": "minutes >= 60 and True",
+      "reason": "equivalent",
+      "dismissed_at": "2026-08-10T09:12:00Z",
+      "note": "`and True` cannot change a boolean",
+      "mutant_id": "0e2f8c1d5a4b6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7"
+    },
+    {
+      "file": "schedule.py",
+      "original": "\"\"\"Whether two half-open minute ranges share a minute.\"\"\"",
+      "replacement": "\"\"\"Whether two ranges share a minute.\"\"\"",
+      "reason": "not_useful",
+      "dismissed_at": "2026-08-10T09:13:20Z"
+    }
+  ]
+}

@@ -13,11 +13,11 @@ from tremula_python.contracts import CONTRACT_VERSION, Capabilities, PackInfo
 DISTRIBUTION = "tremula-python"
 """The pack's distribution name, which is also how the core refers to it."""
 
-SUBCOMMANDS = ("run", "collect", "validate", "spans")
+SUBCOMMANDS = ("run", "collect", "validate", "spans", "probe")
 """The work subcommands. `--capabilities` is the handshake, not one of them.
 
-`spans` is last because it arrived last, and because a core that has never heard
-of it still works with this pack: the handshake asks for the subcommands the core
+In the order they arrived, newest last, because a core that has never heard of the
+newest still works with this pack: the handshake asks for the subcommands the core
 needs, not for the ones the pack has.
 """
 

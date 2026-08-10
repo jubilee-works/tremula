@@ -158,6 +158,7 @@ class Stage(str, Enum):
 
     PREFLIGHT = "preflight"
     SPANS = "spans"
+    PROBE = "probe"
     VALIDATE = "validate"
     BASELINE = "baseline"
     PLAN = "plan"
@@ -235,3 +236,70 @@ class SpansReport(_Model):
     file: str
     file_sha256: str
     functions: list[FunctionSpan]
+
+
+class ProbeOutcome(str, Enum):
+    """Whether one input told the two versions of a function apart."""
+
+    DIFFERS = "differs"
+    INDISTINGUISHABLE = "indistinguishable"
+    UNDECIDED = "undecided"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "ProbeOutcome | None":
+        """Read an outcome named by a newer producer rather than refusing it."""
+        return cls.UNKNOWN if isinstance(value, str) else None
+
+
+class Undecided(str, Enum):
+    """Why a probe could not compare the two versions."""
+
+    NONDETERMINISTIC = "nondeterministic"
+    INCOMPARABLE = "incomparable"
+    UNSAFE_WITNESS = "unsafe_witness"
+    METHOD = "method"
+    NO_SUCH_FUNCTION = "no_such_function"
+    TIMED_OUT = "timed_out"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "Undecided | None":
+        """Read a reason named by a newer producer rather than refusing it."""
+        return cls.UNKNOWN if isinstance(value, str) else None
+
+
+class Ending(str, Enum):
+    """How a call ended."""
+
+    RETURNED = "returned"
+    RAISED = "raised"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "Ending | None":
+        """Read an ending named by a newer producer rather than refusing it."""
+        return cls.UNKNOWN if isinstance(value, str) else None
+
+
+class Observation(_Model):
+    """What one version of the function did with the witness call."""
+
+    ended: Ending
+    value: str | None = None
+    type_name: str | None = None
+    message: str | None = None
+    stdout: str
+
+
+class ProbeReport(_Model):
+    """The result of running one witness call against both versions of a function."""
+
+    schema_version: str
+    file: str
+    call: str
+    outcome: ProbeOutcome
+    undecided: Undecided | None = None
+    original: Observation | None = None
+    mutant: Observation | None = None
+    runs_per_side: int = Field(ge=0)

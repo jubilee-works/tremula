@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Suppressions",
+  "description": "Every mutation a project has decided not to be shown again.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "description": "Contract version of this document.",
+      "type": "string"
+    },
+    "suppressions": {
+      "description": "The decisions, in the order they were made. An empty list is valid and\nmeans nothing has been dismissed yet.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Suppression"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "suppressions"
+  ],
+  "$defs": {
+    "DismissalReason": {
+      "description": "Why a mutation was dismissed.\n\nTwo reasons, and the difference between them is worth keeping: one says the\nmutation could not have been caught by any test, and the other says it could and\nthat a test for it would not be worth having. Only the second is a statement\nabout what the project wants.\n\nAny string is valid here. A consumer reads a value this contract version does not define as `unknown` rather than refusing the document that carries it, so a validator must not refuse it either. The values this version does define:\n- `equivalent` — It cannot change what the program does, so no test could have caught it.\n- `not_useful` — It can, and a test pinning that is not one this project wants.\n- `unknown` — A reason this consumer does not know, written by a newer producer.",
+      "type": "string"
+    },
+    "Suppression": {
+      "description": "One mutation a person has dismissed, and what they said about it.",
+      "type": "object",
+      "properties": {
+        "dismissed_at": {
+          "description": "When, RFC 3339.",
+          "type": "string"
+        },
+        "file": {
+          "description": "The file the mutation changes, POSIX-style and relative to the project root.",
+          "type": "string"
+        },
+        "mutant_id": {
+          "description": "The identifier the mutant had when it was dismissed.\n\nProvenance only, and never matched on: it names the run's survivor that\nprompted the decision, and it stops being that mutation's identifier the\nnext time anything in the file changes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "description": "Whatever the person wanted to say about it, for whoever reads this next.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "original": {
+          "description": "The text it replaces. With `file` and `replacement`, the whole of the key.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why it was dismissed.",
+          "$ref": "#/$defs/DismissalReason"
+        },
+        "replacement": {
+          "description": "The text it puts there.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "original",
+        "replacement",
+        "reason",
+        "dismissed_at"
+      ]
+    }
+  }
+}

@@ -1,0 +1,58 @@
+---
+source: crates/tremula/tests/judge_prompt.rs
+expression: "format!(\"{}\\n---\\n{}\", prompt.system, prompt.user)"
+---
+You are given one Python function, a piece of text inside it, and the text
+somebody proposes to put in its place. You decide whether that change can change
+what the function does.
+
+Answer `claim` with one of two values:
+
+- `distinguishable`: there is an input for which the changed function returns a
+  different value, raises a different exception, or prints something different.
+- `equivalent`: there is no such input.
+
+When you claim `distinguishable`, name that input in `witness`.
+
+- `call` is one call of the function, by the name its `def` gives it, and every
+  argument is a literal: a number, a string, a boolean, `None`, or a list, tuple,
+  dict or set built out of those. Nothing else — no name from the module, no
+  attribute, no call inside the call, no arithmetic, no comparison.
+- `expect_original` and `expect_mutant` say, in a few words, what each version
+  does with that call.
+
+If every input that separates the two needs an argument a literal cannot spell,
+answer `distinguishable` and leave `witness` null. That is a real answer and the
+right one; an argument outside the rule above cannot be evaluated and is thrown
+away.
+
+The witness is run. Both versions of the function are executed on the call you
+give, and the two results are compared. A call that does not separate them
+establishes nothing, and one whose arguments the function refuses establishes
+less than an empty witness.
+
+Reason about the whole function before answering. A guard above the changed text
+can make a difference unreachable, and an expression can be rewritten into an
+identical one — in both cases the answer is `equivalent`.
+---
+file: ranges.py
+
+```python
+def overlaps(start: int, end: int, other_start: int, other_end: int) -> bool:
+    """Whether two half-open minute ranges share a minute."""
+    return start < other_end and other_start < end
+```
+
+This change replaces
+
+```python
+start < other_end
+```
+
+with
+
+```python
+start <= other_end
+```
+
+Can that change what this function does?

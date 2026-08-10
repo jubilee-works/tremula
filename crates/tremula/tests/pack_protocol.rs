@@ -15,7 +15,7 @@ use tremula::{
     pack::{self, PackError},
     python_env::PythonEnv,
 };
-use tremula_contracts::{SCHEMA_VERSION, pack_error::Stage};
+use tremula_contracts::{SCHEMA_VERSION, manifest::Span, pack_error::Stage, probe::ProbeOutcome};
 
 /// The capabilities of a pack the core is happy with.
 const GOOD_CAPABILITIES: &str = r#"{"name":"tremula-python","version":"0.1.0","contract_version":"0.1","subcommands":["run","collect","validate"],"validate_checks":["parses"]}"#;
@@ -381,30 +381,126 @@ fn is_alive(pid: u32) -> bool {
     rustix::process::test_kill_process(pid).is_ok()
 }
 
-/// The one case with a real pack: the values in the contract's own example are
-/// the values the installed pack reports.
-#[test]
-fn the_repositorys_pack_answers_the_handshake() {
+/// The interpreter of the repository's own environment, or nothing when there is
+/// none to use.
+fn installed_pack() -> Option<PythonEnv> {
     let interpreter = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(".venv")
         .join("bin")
         .join("python");
-    if !interpreter.is_file() {
-        eprintln!(
-            "skipped: no virtual environment at {}",
-            interpreter.display()
-        );
-        return;
+    if interpreter.is_file() {
+        return Some(PythonEnv::at(interpreter));
     }
+    eprintln!(
+        "skipped: no virtual environment at {}",
+        interpreter.display()
+    );
+    None
+}
 
-    let capabilities = pack::handshake(&PythonEnv::at(interpreter)).unwrap();
+/// Triage asks for two calls beyond what a run needs, and asks before it pays a
+/// model for anything. The installed pack offers both.
+#[test]
+fn the_repositorys_pack_offers_what_triage_needs() {
+    let Some(env) = installed_pack() else { return };
+
+    let capabilities = pack::handshake_for_triage(&env).unwrap();
+
+    assert!(capabilities.subcommands.iter().any(|had| had == "probe"));
+}
+
+/// A pack that cannot run a witness is refused before a survivor costs a call.
+#[test]
+fn a_pack_that_cannot_run_a_witness_is_refused_for_triage() {
+    let workspace = TempDir::new().unwrap();
+    let env = pack_answering(
+        workspace.path(),
+        &capabilities_with("subcommands", r#"["run", "collect", "validate", "spans"]"#),
+    );
+
+    let failure = pack::handshake_for_triage(&env).unwrap_err();
+
+    assert!(
+        failure.to_string().contains("probe"),
+        "the refusal has to name the call the pack is missing: {failure}"
+    );
+}
+
+/// The one call whose answer is an observation rather than a claim, made against
+/// the real pack over a real file.
+///
+/// Two cases and not one, because a probe that could only report a difference
+/// would be a probe that reported one whatever it saw.
+#[test]
+fn the_repositorys_pack_runs_a_witness_against_both_versions() {
+    let Some(env) = installed_pack() else { return };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("tests")
+        .join("fixtures")
+        .join("generated_manifest");
+    let source = fs::read_to_string(root.join("ranges.py")).unwrap();
+    let start = u64::try_from(source.find("start < other_end").unwrap()).unwrap();
+    let span = Span {
+        start_byte: start,
+        end_byte: start + u64::try_from("start < other_end".len()).unwrap(),
+    };
+
+    let separating = pack::probe(
+        &env,
+        &pack::ProbeRequest {
+            root: &root,
+            file: "ranges.py",
+            span,
+            replacement: "start <= other_end",
+            call: "overlaps(30, 60, 0, 30)",
+        },
+    )
+    .unwrap();
+    assert_eq!(separating.outcome, ProbeOutcome::Differs);
+    assert_eq!(
+        separating
+            .original
+            .as_ref()
+            .and_then(|side| side.value.as_deref()),
+        Some("False")
+    );
+    assert_eq!(
+        separating
+            .mutant
+            .as_ref()
+            .and_then(|side| side.value.as_deref()),
+        Some("True")
+    );
+
+    let fabricated = pack::probe(
+        &env,
+        &pack::ProbeRequest {
+            root: &root,
+            file: "ranges.py",
+            span,
+            replacement: "start <= other_end",
+            call: "overlaps(0, 30, 40, 60)",
+        },
+    )
+    .unwrap();
+    assert_eq!(fabricated.outcome, ProbeOutcome::Indistinguishable);
+}
+
+/// The one case with a real pack: the values in the contract's own example are
+/// the values the installed pack reports.
+#[test]
+fn the_repositorys_pack_answers_the_handshake() {
+    let Some(env) = installed_pack() else { return };
+
+    let capabilities = pack::handshake(&env).unwrap();
 
     assert_eq!(capabilities.name, "tremula-python");
     assert_eq!(capabilities.contract_version, SCHEMA_VERSION);
     assert_eq!(
         capabilities.subcommands,
-        ["run", "collect", "validate", "spans"]
+        ["run", "collect", "validate", "spans", "probe"]
     );
     assert_eq!(
         capabilities.validate_checks,

@@ -48,6 +48,7 @@ pub mod choose;
 pub mod command;
 pub mod enrich;
 pub mod failures;
+pub mod judge;
 pub mod openai;
 pub mod prompt;
 pub mod round;
