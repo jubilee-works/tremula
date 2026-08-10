@@ -10,3 +10,14 @@
 # the list stays as short as the graph allows: nothing is allowed here that no
 # dependency needs.
 allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+# This list also decides which TLS backend the HTTP client may use, which is not
+# obvious until it fails. Asking a recent client for its own default backend
+# brings rustls with aws-lc-rs, licensed `ISC AND (Apache-2.0 OR ISC)` — an
+# `AND`, so ISC is not optional — along with BSD-3-Clause bindings and
+# CDLA-Permissive-2.0 root certificates. None of those is allowed above, so the
+# client is asked for the platform's own TLS instead, which brings nothing this
+# list did not already contain. It is also why the client's requirement is held
+# to its 0.12 series — a compatibility range across that series, not an exact
+# release — since a later one selects the backend this list refuses. Widening the
+# list to make some other backend build is a decision about what this project
+# ships, and belongs in a commit that says so.

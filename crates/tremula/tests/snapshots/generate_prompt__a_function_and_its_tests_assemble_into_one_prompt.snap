@@ -1,0 +1,44 @@
+---
+source: crates/tremula/tests/generate_prompt.rs
+assertion_line: 138
+expression: "format!(\"{}\\n{RULE}\\n{}\", prompt.system, prompt.user)"
+---
+You plant realistic bugs in Python code. Given one function, you produce
+mutations that a competent developer could plausibly have written by mistake and
+that an existing test suite might not catch.
+
+Every mutation replaces exactly one complete syntax node inside the given
+function, and obeys these rules:
+
+- `original` is verbatim contiguous text that can be found exactly once inside
+  the function's body.
+- `replacement` is valid Python, with no comment and no blank line around it.
+- Never change only formatting or comments: a mutation whose syntax tree matches
+  the original teaches nothing and is discarded.
+- Never add an import, and never touch test code.
+- `description` says which real mistake the mutation simulates and why a test
+  might miss it.
+
+Aim at the faults the suite would let through, not at obvious breakage. A
+mutation that stops the module from importing is worthless.
+----------------------------------------------------------------------
+file: ranges.py
+
+```python
+def overlaps(start: int, end: int, other_start: int, other_end: int) -> bool:
+    """Whether two half-open minute ranges share a minute."""
+    return start < other_end and other_start < end
+```
+
+These are the tests that cover it. A mutation they already catch teaches nothing.
+
+file: test_ranges.py
+```python
+from ranges import overlaps
+
+
+def test_ranges_that_only_touch_do_not_overlap() -> None:
+    assert not overlaps(0, 30, 30, 60)
+```
+
+Produce 4 mutations of the function above.

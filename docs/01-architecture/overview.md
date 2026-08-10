@@ -28,6 +28,62 @@ directory named `tremula_python` in whatever the user was standing in cannot
 answer for it, and neither can `PYTHONPATH`. Every path argument is absolute,
 because the pack starts subprocesses with working directories of their own.
 
+## Where mutants come from
+
+A manifest has to be written by something. That something is a `MutantGenerator`:
+one function in, one set of proposed mutations out, with the model that answered
+and what the call cost. It is a library seam — no subcommand calls it yet, and
+the order of a run below begins with a manifest that already exists.
+
+The seam is narrow on purpose. A generator is handed the text of a function and
+the tests that cover it, and answers with `file`, `original`, `replacement` and
+`description` — **no span**. Asking a model for byte offsets was measured against
+a real provider and produced usable offsets under one per cent of the time, while
+the text it wanted to replace came back findable in the function four times in
+five. So the address of a mutation is its text, and turning that into a span is
+the core's arithmetic against the file's own bytes, where it was always going to
+be correct.
+
+That division decides who retries what. A generator can only see what it was sent
+and what came back; everything measured against the file belongs to the caller,
+which is why a request can carry the defects a caller found and ask again.
+
+| what went wrong | whose problem | what happens |
+| --- | --- | --- |
+| the answer is not the JSON the contract asks for, carries a member the contract forbids, or holds a number of mutations nobody asked for | the generator | asked again once, with the defects attached |
+| the model refused, the answer stopped at the token limit, or there were no choices at all | the generator | three distinct failures, none of them asked again |
+| what came back was not the provider's protocol at all | the generator | a failure of its own, not asked again: a correction is addressed to a model, and no model spoke |
+| the provider is rate limiting | the generator | waited out once when the header is there, capped; a header this cannot read still earns the wait, at the cap; no header at all is a failure naming the quota |
+| `original` is not in the function, or is in it more than once | the caller | ask again with the defect list |
+| the replacement does not compile once spliced into the file | the caller | ask again with the defect list |
+| the mutation cannot change what the function does | the caller | discard it — a prompt that forbade this was measured and did not work |
+
+The generator's two retries are counted apart, one each: a call that spent its
+wait can still correct an answer, and a call that corrected an answer can still
+be told to wait. Every failure message says only what actually happened, so a
+message that mentions a retry was reached by a path that spent one.
+
+The answer is held to the contract the request sent. The schema that goes out
+forbids a member it does not name, and the reader refuses one, because a receiver
+that ignored it would be declining to enforce what it had just asked for — an
+answer carrying a `span`, which is what the measured provider sent when the
+measured schema asked for offsets, is a correctable defect rather than a field to
+skip. That rule is the opposite of the one for the documents in `contracts/`,
+where a reader ignores what it does not recognise; the difference is that those
+are published documents with versions and this is one exchange with a model that
+was just told what to send.
+
+Every attempt is on a ledger the caller gets back, including the attempts that
+failed, because a provider charges for those too. A failure carries the same
+ledger as a success, so spend can be settled whichever way the call went.
+
+The reference implementation asks OpenAI's chat completions endpoint with the
+answer constrained to a schema derived from the type that reads it. The key comes
+from `OPENAI_API_KEY` at the moment of the call, travels as a header, and is
+taken back out of anything the provider says before that reaches a message.
+Which model to ask is the caller's to name, exactly, because the answer's own
+report of it is what a mutant records as provenance.
+
 ## The order of a run
 
 The sequence below is mostly forced rather than chosen; each step is either the

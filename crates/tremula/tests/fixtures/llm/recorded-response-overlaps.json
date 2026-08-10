@@ -1,0 +1,127 @@
+{
+  "request": {
+    "model": "gpt-5.2-2025-12-11",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You plant realistic bugs in Python code. Given one function, you produce\nmutations that a competent developer could plausibly have written by mistake and\nthat an existing test suite might not catch.\n\nEvery mutation replaces exactly one complete syntax node inside the given\nfunction, and obeys these rules:\n\n- `span` is a half-open byte range into the whole file: 0-indexed, end\n  exclusive, counted in UTF-8 bytes.\n- `original` is exactly the text those bytes hold.\n- `replacement` is valid Python that parses on its own as a single node, with no\n  comment and no blank line around it.\n- The span is never empty. A pure insertion cannot be expressed.\n- Never change only formatting or comments: a mutation whose syntax tree matches\n  the original teaches nothing and is discarded.\n- Never add an import, and never touch test code.\n- `description` says which real mistake the mutation simulates and why a test\n  might miss it.\n\nAim at the faults the suite would let through, not at obvious breakage. A\nmutation that stops the module from importing is worthless."
+      },
+      {
+        "role": "user",
+        "content": "file: ranges.py\nThis function occupies bytes 67 to 257 of that file, end exclusive. Byte 67 is the `d` of its `def`. Offsets you count inside the snippet below are relative to the snippet, so add 67 to each one.\n\n```python\ndef overlaps(start: int, end: int, other_start: int, other_end: int) -> bool:\n    \"\"\"Whether two half-open minute ranges share a minute.\"\"\"\n    return start < other_end and other_start < end\n```\n\nThese are the tests that cover it. A mutation they already catch teaches nothing.\n\nfile: test_ranges.py\n```python\n\"\"\"The control group's suite: tight where a boundary matters, loose elsewhere.\n\n`overlaps` is pinned at the minute where the two ranges only touch, so a mutant\nthat moves that boundary is caught. `merge` is only ever asked about ranges that\nalready overlap, so a mutant that mishandles disjoint ones has nothing to trip\nover.\n\"\"\"\n\nfrom ranges import merge, overlaps\n\n\ndef test_ranges_that_share_a_minute_overlap() -> None:\n    assert overlaps(0, 30, 15, 45)\n\n\ndef test_ranges_that_only_touch_do_not_overlap() -> None:\n    assert not overlaps(0, 30, 30, 60)\n\n\ndef test_a_range_before_another_does_not_overlap_it() -> None:\n    assert not overlaps(0, 10, 20, 30)\n\n\ndef test_merging_two_overlapping_ranges_covers_both() -> None:\n    assert merge((0, 30), (15, 45)) == (0, 45)\n```\n\nProduce 4 mutations of the function above."
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "tremula_mutants",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mutants"
+          ],
+          "properties": {
+            "mutants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "file",
+                  "original",
+                  "span",
+                  "replacement",
+                  "description"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string"
+                  },
+                  "original": {
+                    "type": "string"
+                  },
+                  "span": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "start_byte",
+                      "end_byte"
+                    ],
+                    "properties": {
+                      "start_byte": {
+                        "type": "integer"
+                      },
+                      "end_byte": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  "replacement": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "max_completion_tokens": 2000
+  },
+  "response": {
+    "id": "chatcmpl-EAviQn5ocV7s8mhrppxgRVBNxgV5h",
+    "object": "chat.completion",
+    "created": 1786273846,
+    "model": "gpt-5.2-2025-12-11",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mutants\":[{\"file\":\"ranges.py\",\"original\":\"start < other_end and other_start < end\",\"span\":{\"start_byte\":170,\"end_byte\":208},\"replacement\":\"start <= other_end and other_start < end\",\"description\":\"Off-by-one on the first comparison: treating the end of the other range as inclusive. This is a common boundary mistake, but this suite may miss it because it only pins the exact-touch boundary in the opposite direction (other_start == end), not the case where start == other_end.\"},{\"file\":\"ranges.py\",\"original\":\"start < other_end and other_start < end\",\"span\":{\"start_byte\":170,\"end_byte\":208},\"replacement\":\"start < other_end and other_start <= end\",\"description\":\"Off-by-one on the second comparison: making this side inclusive. Tests cover the touch case where other_start == end (so this mutant would be caught), but they do not cover the symmetric touch case start == other_end; a developer might only have reasoned about one direction.\"},{\"file\":\"ranges.py\",\"original\":\"start < other_end and other_start < end\",\"span\":{\"start_byte\":170,\"end_byte\":208},\"replacement\":\"start < other_end or other_start < end\",\"description\":\"Boolean logic slip: using `or` instead of `and` makes many disjoint ranges appear overlapping. A weak suite that mostly exercises overlapping cases could miss it; here it is caught by the 'before another' test but might survive in a real suite lacking that disjoint case.\"},{\"file\":\"ranges.py\",\"original\":\"start < other_end and other_start < end\",\"span\":{\"start_byte\":170,\"end_byte\":208},\"replacement\":\"start < other_end and other_start < other_end\",\"description\":\"Wrong-variable copy/paste: compares other_start to other_end instead of to end, effectively ignoring the first range's end. This can still pass when other_start < other_end (true for normal ranges) and start < other_end holds, which is common in overlapping tests; disjoint cases where the first range ends before other_start may not be well covered.\"}]}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 682,
+      "completion_tokens": 436,
+      "total_tokens": 1118,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  },
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt_tokens": 682,
+    "completion_tokens": 436,
+    "total_tokens": 1118,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  }
+}

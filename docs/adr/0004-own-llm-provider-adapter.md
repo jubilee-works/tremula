@@ -47,6 +47,40 @@ adopting it today would trade a few hundred lines we understand for a dependency
 we do not need yet. Revisit when any of these becomes true: three or more
 providers, streaming responses, or provider-side tool calls.
 
+## What was built
+
+A `MutantGenerator` trait and one implementation of it, against chat completions
+with the answer held to a JSON schema the provider enforces. It came out at the
+size this decision assumed. Three things about it were not obvious when the
+decision was taken and are worth writing down where the decision is.
+
+**The answer carries no byte offsets.** The retry policy this decision imagined —
+one validation retry — is right, but it turned out to protect against the wrong
+thing. Structured output made schema failures effectively disappear: forty-eight
+measured calls, no retries. What does fail is a model's arithmetic, so the answer
+asks for the text to replace rather than where it is, and the retry budget is
+spent on an answer that could not be read or that proposed the wrong number of
+mutations. Finding the text, and everything that can only be judged against the
+file, belongs to the caller — which is a seam in the request type rather than
+more surface in the adapter.
+
+**The HTTP client is blocking, and that is not the same as having no runtime.**
+It starts one on a thread of its own behind a synchronous call. The synchronous
+call is why it was chosen: the rest of the binary is synchronous, and generation
+is one request that either answers or fails. Claiming this avoids a runtime would
+be false. What it avoids is colouring every caller.
+
+**TLS is the platform's own, and that is a licence decision.** The allowlist in
+`deny.toml` does not admit `aws-lc-rs`, whose licence is `ISC AND (Apache-2.0 OR
+ISC)` — the `AND` makes ISC unavoidable — nor the BSD-3-Clause bindings and
+CDLA-Permissive-2.0 root certificates a current rustls stack brings with it.
+Platform TLS adds no licence the graph did not already contain. It also decides
+which releases of the client are available: the requirement is a compatibility
+range over the 0.12 series rather than an exact pin — any 0.12.x resolves — and
+the series boundary is where it stops, because a later one redefined "default" to
+mean rustls. Moving across that boundary is a decision about what this project
+ships, not a version bump.
+
 ## Consequences
 
 We own the adapter, including new providers, API changes, and retry semantics.

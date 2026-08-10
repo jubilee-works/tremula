@@ -7,7 +7,7 @@ reports which ones survive.
 
 | Chapter | Contents |
 | --- | --- |
-| [01-architecture/overview.md](01-architecture/overview.md) | How the core and a language pack divide the work, the order of a run, what a run leaves behind, and what each exit code means. |
+| [01-architecture/overview.md](01-architecture/overview.md) | How the core and a language pack divide the work, where the mutants a run tests come from, the order of a run, what a run leaves behind, and what each exit code means. |
 | [02-contracts/contracts.md](02-contracts/contracts.md) | The documents the core and its language packs exchange: manifest semantics, mutant identifiers, the verdict rules, and the exit codes. |
 | [03-python-backend/cosmic-ray.md](03-python-backend/cosmic-ray.md) | How the Python pack carries a manifest's mutants through Cosmic Ray: the single parameterized operator, the two time limits, and how it verifies that the right file changed. |
 

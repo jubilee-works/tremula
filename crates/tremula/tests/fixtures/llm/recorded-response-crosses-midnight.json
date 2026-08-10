@@ -1,0 +1,127 @@
+{
+  "request": {
+    "model": "gpt-5.2-2025-12-11",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You plant realistic bugs in Python code. Given one function, you produce\nmutations that a competent developer could plausibly have written by mistake and\nthat an existing test suite might not catch.\n\nEvery mutation replaces exactly one complete syntax node inside the given\nfunction, and obeys these rules:\n\n- `span` is a half-open byte range into the whole file: 0-indexed, end\n  exclusive, counted in UTF-8 bytes.\n- `original` is exactly the text those bytes hold.\n- `replacement` is valid Python that parses on its own as a single node, with no\n  comment and no blank line around it.\n- The span is never empty. A pure insertion cannot be expressed.\n- Never change only formatting or comments: a mutation whose syntax tree matches\n  the original teaches nothing and is discarded.\n- Never add an import, and never touch test code.\n- `description` says which real mistake the mutation simulates and why a test\n  might miss it.\n\nAim at the faults the suite would let through, not at obvious breakage. A\nmutation that stops the module from importing is worthless."
+      },
+      {
+        "role": "user",
+        "content": "file: timezones.py\nThis function occupies bytes 811 to 1403 of that file, end exclusive. Byte 811 is the `d` of its `def`. Offsets you count inside the snippet below are relative to the snippet, so add 811 to each one.\n\n```python\ndef crosses_midnight(start: datetime, end: datetime, zone: str) -> bool:\n    \"\"\"Whether an event covers more than one local calendar day in `zone`.\n\n    Raises:\n        ValueError: The event ends no later than it starts.\n    \"\"\"\n    here = ZoneInfo(zone)\n    began = start.astimezone(here)\n    stopped = end.astimezone(here)\n    if stopped <= began:\n        raise ValueError(\"an event cannot end before it starts\")\n    # The end is exclusive, so an event stopping at midnight is one day long.\n    last_moment = stopped - timedelta(microseconds=1)\n    return began.date() != last_moment.date()\n```\n\nThese are the tests that cover it. A mutation they already catch teaches nothing.\n\nfile: test_timezones.py\n```python\n\"\"\"Timezone handling, pinned where a local day is not 24 hours long.\n\n`day_bounds` is asked about an ordinary Seoul day and about the New York day\nthat loses an hour. The day that gains one is deliberately not asked about — a\nsuite that only ever tested spring forward is exactly the kind of gap a mutation\nrun is supposed to reveal. `crosses_midnight` is pinned at the exclusive end.\n\"\"\"\n\nfrom datetime import UTC, date, datetime, timedelta\nfrom zoneinfo import ZoneInfo\n\nimport pytest\nfrom timezones import crosses_midnight, day_bounds\n\nSEOUL = \"Asia/Seoul\"\nNEW_YORK = \"America/New_York\"\n\n\ndef elapsed(start: datetime, end: datetime) -> timedelta:\n    \"\"\"How much time really passed between two instants.\n\n    Subtracting two datetimes that share a `tzinfo` object ignores the offsets\n    and compares wall clocks, which is precisely wrong on a day that changes\n    offset. Going through UTC is what makes the missing hour visible.\n    \"\"\"\n    return end.astimezone(UTC) - start.astimezone(UTC)\n\n\ndef test_an_ordinary_local_day_is_twenty_four_hours_long() -> None:\n    start, end = day_bounds(date(2026, 8, 9), SEOUL)\n    assert elapsed(start, end) == timedelta(hours=24)\n\n\ndef test_a_local_day_starts_at_local_midnight() -> None:\n    start, _ = day_bounds(date(2026, 8, 9), SEOUL)\n    assert start.isoformat() == \"2026-08-09T00:00:00+09:00\"\n\n\ndef test_the_day_the_clocks_go_forward_is_an_hour_short() -> None:\n    start, end = day_bounds(date(2026, 3, 8), NEW_YORK)\n    assert elapsed(start, end) == timedelta(hours=23)\n\n\ndef test_an_event_inside_one_local_day_does_not_cross_midnight() -> None:\n    here = ZoneInfo(SEOUL)\n    start = datetime(2026, 8, 9, 9, 0, tzinfo=here)\n    end = datetime(2026, 8, 9, 18, 0, tzinfo=here)\n    assert not crosses_midnight(start, end, SEOUL)\n\n\ndef test_an_event_ending_exactly_at_midnight_stays_on_one_day() -> None:\n    here = ZoneInfo(SEOUL)\n    start = datetime(2026, 8, 9, 22, 0, tzinfo=here)\n    end = datetime(2026, 8, 10, 0, 0, tzinfo=here)\n    assert not crosses_midnight(start, end, SEOUL)\n\n\ndef test_an_event_a_minute_past_midnight_crosses_it() -> None:\n    here = ZoneInfo(SEOUL)\n    start = datetime(2026, 8, 9, 22, 0, tzinfo=here)\n    end = datetime(2026, 8, 10, 0, 1, tzinfo=here)\n    assert crosses_midnight(start, end, SEOUL)\n\n\ndef test_an_event_that_ends_before_it_starts_is_refused() -> None:\n    here = ZoneInfo(SEOUL)\n    start = datetime(2026, 8, 9, 18, 0, tzinfo=here)\n    end = datetime(2026, 8, 9, 9, 0, tzinfo=here)\n    with pytest.raises(ValueError):\n        crosses_midnight(start, end, SEOUL)\n\n\ndef test_the_same_instant_read_in_two_zones_can_fall_on_different_days() -> None:\n    # 10:00 in New York is 23:00 in Seoul, so the same two hours cross midnight\n    # in one zone and not in the other.\n    start = datetime(2026, 8, 9, 10, 0, tzinfo=ZoneInfo(NEW_YORK))\n    end = start + timedelta(hours=2)\n    assert not crosses_midnight(start, end, NEW_YORK)\n    assert crosses_midnight(start, end, SEOUL)\n```\n\nProduce 4 mutations of the function above."
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "tremula_mutants",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mutants"
+          ],
+          "properties": {
+            "mutants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "file",
+                  "original",
+                  "span",
+                  "replacement",
+                  "description"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string"
+                  },
+                  "original": {
+                    "type": "string"
+                  },
+                  "span": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "start_byte",
+                      "end_byte"
+                    ],
+                    "properties": {
+                      "start_byte": {
+                        "type": "integer"
+                      },
+                      "end_byte": {
+                        "type": "integer"
+                      }
+                    }
+                  },
+                  "replacement": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "max_completion_tokens": 2000
+  },
+  "response": {
+    "id": "chatcmpl-EAvinl2nViqGTKDMlU4e0zuIIrwSg",
+    "object": "chat.completion",
+    "created": 1786273869,
+    "model": "gpt-5.2-2025-12-11",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mutants\":[{\"file\":\"timezones.py\",\"original\":\"if stopped <= began:\\n        raise ValueError(\\\"an event cannot end before it starts\\\")\",\"span\":{\"start_byte\":1032,\"end_byte\":1116},\"replacement\":\"if stopped < began:\\n        raise ValueError(\\\"an event cannot end before it starts\\\")\",\"description\":\"Off-by-one in the ordering guard: allows zero-length events (end == start) instead of rejecting them. Existing tests only cover end-before-start, not end-equals-start, so this could slip through.\"},{\"file\":\"timezones.py\",\"original\":\"last_moment = stopped - timedelta(microseconds=1)\",\"span\":{\"start_byte\":1221,\"end_byte\":1271},\"replacement\":\"last_moment = stopped - timedelta(seconds=1)\",\"description\":\"Wrong unit when adjusting for exclusive end: subtracts a full second instead of one microsecond. Most tests still pass (including the midnight-exclusive cases), but events ending very shortly after midnight (e.g., 00:00:00.500000) would be misclassified and the suite doesn't exercise sub-second boundaries.\"},{\"file\":\"timezones.py\",\"original\":\"last_moment = stopped - timedelta(microseconds=1)\",\"span\":{\"start_byte\":1221,\"end_byte\":1271},\"replacement\":\"last_moment = began - timedelta(microseconds=1)\",\"description\":\"Uses the wrong endpoint when computing the exclusive-end adjustment (copy/paste or variable-name mixup). For typical same-day events and many cross-midnight cases this still returns the expected result, but it can fail when the start is near midnight and the end is later; tests don’t cover those edge placements.\"},{\"file\":\"timezones.py\",\"original\":\"return began.date() != last_moment.date()\",\"span\":{\"start_byte\":1271,\"end_byte\":1310},\"replacement\":\"return began.date() < last_moment.date()\",\"description\":\"Uses an ordering comparison instead of inequality. This still matches intended behavior for normal forward-moving events (dates either equal or begin before end), so the current tests pass; it would differ only under unusual conditions (e.g., exotic calendar/overflow scenarios or if upstream code ever supplied non-monotonic instants after timezone conversion), which the suite doesn’t cover.\"}]}",
+          "refusal": null,
+          "annotations": []
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 1458,
+      "completion_tokens": 480,
+      "total_tokens": 1938,
+      "prompt_tokens_details": {
+        "cached_tokens": 0,
+        "audio_tokens": 0
+      },
+      "completion_tokens_details": {
+        "reasoning_tokens": 0,
+        "audio_tokens": 0,
+        "accepted_prediction_tokens": 0,
+        "rejected_prediction_tokens": 0
+      }
+    },
+    "service_tier": "default",
+    "system_fingerprint": null
+  },
+  "model_resolved": "gpt-5.2-2025-12-11",
+  "usage": {
+    "prompt_tokens": 1458,
+    "completion_tokens": 480,
+    "total_tokens": 1938,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  }
+}

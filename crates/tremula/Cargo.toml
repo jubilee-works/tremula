@@ -17,6 +17,20 @@ serde_json = "1"
 time = { version = "0.3", features = ["formatting", "macros"] }
 # Asking whether a process is still alive, with no `unsafe` block of our own.
 rustix = { version = "1", features = ["process"] }
+# The schema a model is held to when it answers, derived from the type that
+# reads the answer, so the two cannot drift apart.
+schemars = "1"
+# One HTTPS call at a time, to a model provider. `blocking` keeps the calling
+# surface synchronous, which is what the rest of this binary is; it is honest
+# about starting a runtime of its own on a thread behind that surface, and this
+# is not a claim to have avoided one. `default-tls` is the platform's own TLS —
+# see deny.toml for why the alternative is not available here.
+#
+# `"0.12"` is a compatibility range and not an exact pin: any 0.12.x resolves,
+# and only the 0.12 series does. The series boundary is the point, because a
+# later one redefines what `default-tls` selects, which is a decision about what
+# this project ships rather than a version bump.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "default-tls"] }
 
 [dev-dependencies]
 assert_cmd = "2"

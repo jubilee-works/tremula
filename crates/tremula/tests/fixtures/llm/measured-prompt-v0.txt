@@ -1,0 +1,63 @@
+You plant realistic bugs in Python code. Given one function, you produce
+mutations that a competent developer could plausibly have written by mistake and
+that an existing test suite might not catch.
+
+Every mutation replaces exactly one complete syntax node inside the given
+function, and obeys these rules:
+
+- `span` is a half-open byte range into the whole file: 0-indexed, end
+  exclusive, counted in UTF-8 bytes.
+- `original` is exactly the text those bytes hold.
+- `replacement` is valid Python that parses on its own as a single node, with no
+  comment and no blank line around it.
+- The span is never empty. A pure insertion cannot be expressed.
+- Never change only formatting or comments: a mutation whose syntax tree matches
+  the original teaches nothing and is discarded.
+- Never add an import, and never touch test code.
+- `description` says which real mistake the mutation simulates and why a test
+  might miss it.
+
+Aim at the faults the suite would let through, not at obvious breakage. A
+mutation that stops the module from importing is worthless.
+----------------------------------------------------------------------
+file: ranges.py
+This function occupies bytes 67 to 257 of that file, end exclusive. Byte 67 is the `d` of its `def`. Offsets you count inside the snippet below are relative to the snippet, so add 67 to each one.
+
+```python
+def overlaps(start: int, end: int, other_start: int, other_end: int) -> bool:
+    """Whether two half-open minute ranges share a minute."""
+    return start < other_end and other_start < end
+```
+
+These are the tests that cover it. A mutation they already catch teaches nothing.
+
+file: test_ranges.py
+```python
+"""The control group's suite: tight where a boundary matters, loose elsewhere.
+
+`overlaps` is pinned at the minute where the two ranges only touch, so a mutant
+that moves that boundary is caught. `merge` is only ever asked about ranges that
+already overlap, so a mutant that mishandles disjoint ones has nothing to trip
+over.
+"""
+
+from ranges import merge, overlaps
+
+
+def test_ranges_that_share_a_minute_overlap() -> None:
+    assert overlaps(0, 30, 15, 45)
+
+
+def test_ranges_that_only_touch_do_not_overlap() -> None:
+    assert not overlaps(0, 30, 30, 60)
+
+
+def test_a_range_before_another_does_not_overlap_it() -> None:
+    assert not overlaps(0, 10, 20, 30)
+
+
+def test_merging_two_overlapping_ranges_covers_both() -> None:
+    assert merge((0, 30), (15, 45)) == (0, 45)
+```
+
+Produce 4 mutations of the function above.
