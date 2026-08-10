@@ -140,24 +140,8 @@ pub enum DismissFailure {
 #[must_use]
 pub fn dismiss(args: &DismissArgs) -> ExitCode {
     match record(args) {
-        Ok(Recorded::Added(where_it_went, mutant)) => {
-            println!(
-                "dismissed {} in {}: {} → {}",
-                short(&mutant.id),
-                mutant.file,
-                one_line(&mutant.original),
-                one_line(&mutant.replacement)
-            );
-            println!("recorded in {}", where_it_went.display());
-            ExitCode::SUCCESS
-        }
-        Ok(Recorded::Already(where_it_is, mutant)) => {
-            println!(
-                "already dismissed: {} in {} is in {}",
-                short(&mutant.id),
-                mutant.file,
-                where_it_is.display()
-            );
+        Ok(recorded) => {
+            println!("{}", confirmation(&recorded));
             ExitCode::SUCCESS
         }
         Err(failure) => {
@@ -167,13 +151,51 @@ pub fn dismiss(args: &DismissArgs) -> ExitCode {
     }
 }
 
+/// What a person is told a dismissal came to.
+///
+/// A dismissal that was already recorded says what the recorded decision was, and not
+/// only that there was one. The reason a person has just typed is not the reason kept
+/// — the first one is, and nothing here overwrites it — so a message that left the
+/// recorded reason out would leave them to work that out by opening the file.
+#[must_use]
+pub fn confirmation(recorded: &Recorded) -> String {
+    match recorded {
+        Recorded::Added(where_it_went, mutant) => format!(
+            "dismissed {} in {}: {} → {}\nrecorded in {}",
+            short(&mutant.id),
+            mutant.file,
+            one_line(&mutant.original),
+            one_line(&mutant.replacement),
+            where_it_went.display()
+        ),
+        Recorded::Already(where_it_is, mutant, decision) => format!(
+            "already dismissed: {} in {} is in {}, recorded as {} at {}; nothing was changed, and \
+             a decision to record differently has to be edited there",
+            short(&mutant.id),
+            mutant.file,
+            where_it_is.display(),
+            worded(decision.reason),
+            decision.dismissed_at
+        ),
+    }
+}
+
+/// A reason as the command line spells it, so what is read back is what a person typed.
+fn worded(reason: DismissalReason) -> &'static str {
+    match reason {
+        DismissalReason::Equivalent => "equivalent",
+        DismissalReason::NotUseful => "not-useful",
+        DismissalReason::Unknown => "a reason this version does not know",
+    }
+}
+
 /// What recording a dismissal came to.
 #[derive(Debug)]
 pub enum Recorded {
     /// It was added, to the file named.
     Added(PathBuf, Box<Mutant>),
-    /// It was already there, in the file named.
-    Already(PathBuf, Box<Mutant>),
+    /// It was already there, in the file named, as the decision carried here says.
+    Already(PathBuf, Box<Mutant>, Box<Suppression>),
 }
 
 /// Look the mutant up in its run and write the decision down.
@@ -197,6 +219,19 @@ pub fn record(args: &DismissArgs) -> Result<Recorded, DismissFailure> {
         .clone()
         .unwrap_or_else(|| args.project.join(DEFAULT_SUPPRESSIONS));
     let mut dismissals = Dismissals::load(&where_it_goes)?;
+    // Looked up before anything is written, and the decision itself is carried back:
+    // what a second dismissal of one survivor owes the person is what the first one
+    // said, since that is the one that stands.
+    if let Some(decision) = dismissals.covering(&mutant.file, &mutant.original, &mutant.replacement)
+    {
+        return Ok(Recorded::Already(
+            where_it_goes,
+            Box::new(mutant.clone()),
+            Box::new(decision.clone()),
+        ));
+    }
+    // Whether it was added is settled above; `add` refusing a duplicate is a guarantee
+    // it keeps for its other callers, and here it can only be adding one.
     let added = dismissals.add(Suppression {
         file: mutant.file.clone(),
         original: mutant.original.clone(),
@@ -206,9 +241,7 @@ pub fn record(args: &DismissArgs) -> Result<Recorded, DismissFailure> {
         note: args.note.clone(),
         mutant_id: Some(mutant.id.clone()),
     });
-    if !added {
-        return Ok(Recorded::Already(where_it_goes, Box::new(mutant)));
-    }
+    debug_assert!(added, "a decision nothing covers is one `add` records");
     dismissals.write(&where_it_goes)?;
     Ok(Recorded::Added(where_it_goes, Box::new(mutant)))
 }

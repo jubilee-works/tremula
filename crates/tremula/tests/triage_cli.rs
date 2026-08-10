@@ -11,7 +11,6 @@ mod triage_fixture;
 
 use std::sync::{Mutex, PoisonError};
 
-use serde_json::json;
 use tremula::{
     console,
     generate::{
@@ -21,12 +20,7 @@ use tremula::{
             JudgementOutcome, JudgementRequest, Witness,
         },
     },
-    python_env::PythonEnv,
-    triage::{
-        assess,
-        failures::TriageFailure,
-        inputs::{self, Survivor},
-    },
+    triage::{self, assess, failures::TriageFailure, inputs},
 };
 use tremula_contracts::{
     suppressions::{DismissalReason, Suppression, Suppressions},
@@ -34,8 +28,8 @@ use tremula_contracts::{
 };
 
 use triage_fixture::{
-    FILE, MODEL, Mutation, RunFixture, SOURCE, differs, indistinguishable, manifest, report,
-    span_of, undecided,
+    FILE, MODEL, Mutation, RunFixture, differs, indistinguishable, one_survivor, report,
+    two_survivors, undecided,
 };
 
 /// A judge that answers from a script, one answer per survivor in order.
@@ -104,22 +98,6 @@ impl EquivalenceJudge for Scripted {
             }),
         }
     }
-}
-
-/// One survivor of `needs_break`, which is the fixture's loose boundary.
-fn one_survivor() -> [Mutation; 2] {
-    [
-        Mutation {
-            original: "other_start < end",
-            replacement: "other_start <= end",
-            verdict: "killed",
-        },
-        Mutation {
-            original: "minutes >= 60",
-            replacement: "minutes > 60",
-            verdict: "survived",
-        },
-    ]
 }
 
 /// The witness that really separates the fixture's survivor.
@@ -252,18 +230,7 @@ fn every_reason_a_probe_gives_arrives_as_a_reason_of_its_own() {
 
 #[test]
 fn a_judge_that_cannot_answer_leaves_the_survivor_undecided() {
-    let fixture = RunFixture::of(&[
-        Mutation {
-            original: "other_start < end",
-            replacement: "other_start <= end",
-            verdict: "survived",
-        },
-        Mutation {
-            original: "minutes >= 60",
-            replacement: "minutes > 60",
-            verdict: "survived",
-        },
-    ]);
+    let fixture = RunFixture::of(&two_survivors());
     fixture.pack(&[differs(SEPARATING, "True", "False")]);
     let judge = Scripted::of(vec![
         Err(JudgeFailure::NoAnswer),
@@ -428,100 +395,44 @@ fn a_record_of_decisions_that_cannot_be_read_stops_the_triage_before_it_pays() {
     assert!(judge.asked().is_empty());
 }
 
-/// The report and the manifest are documents of one run, and a directory where
-/// they are not is one nothing can be joined in.
+/// The two exit codes a triage has, through the path the command line takes.
+///
+/// Zero when the judging happened, *whatever it decided*: a triage that established
+/// nothing about anything has told the reader something, and a command that exited
+/// non-zero for it would be a gate this one is not. Two when the judging could not
+/// happen at all, which here is a directory holding two documents of two different
+/// runs — the same code every other operational failure in this tool reports.
 #[test]
-fn a_directory_whose_report_is_about_another_run_is_refused() {
-    let fixture = RunFixture::of(&one_survivor());
-    let env = fixture.pack(&[]);
-    let verdicts = vec![json!({
-        "mutant_id": fixture.ids[1],
-        "file": FILE,
-        "span": {"start_byte": span_of("minutes >= 60").start_byte, "end_byte": span_of("minutes >= 60").end_byte},
-        "verdict": "survived",
-        "detail": "as the fixture says",
-    })];
-    fixture.rewrite("report.json", &report("20260810T090000Z-999999", &verdicts));
+fn a_completed_triage_exits_zero_whatever_it_classified_and_a_broken_run_exits_two() {
+    let fixture = RunFixture::of(&two_survivors());
+    fixture.pack(&[]);
+    // Nothing is established about either survivor: no witness for one, none for the
+    // other. Both are undecided, and the judging still happened.
+    let judge = Scripted::of(vec![
+        Ok(Judgement {
+            claim: Answered::Distinguishable,
+            witness: None,
+        }),
+        Ok(Judgement {
+            claim: Answered::Distinguishable,
+            witness: None,
+        }),
+    ]);
 
-    let failure = inputs::read(&env, &fixture.run_dir()).unwrap_err();
+    assert_eq!(triage::exit_status(&fixture.asking(), &judge), 0);
+    let judged = fixture.triage();
+    assert_eq!(judged.score.undecided, 2, "and it decided nothing");
+    assert_eq!(judged.score.distinguished_at_function_level, 0);
 
-    assert!(
-        matches!(failure, TriageFailure::AnotherRun { .. }),
-        "{failure}"
+    let broken = RunFixture::of(&two_survivors());
+    broken.pack(&[]);
+    let verdicts: Vec<serde_json::Value> = Vec::new();
+    broken.rewrite("report.json", &report("20260810T090000Z-999999", &verdicts));
+
+    assert_eq!(
+        triage::exit_status(&broken.asking(), &Scripted::of(vec![])),
+        tremula::triage::EXIT_FAILURE,
     );
-}
-
-#[test]
-fn a_report_giving_a_verdict_on_a_mutant_the_manifest_lacks_is_refused() {
-    let fixture = RunFixture::of(&one_survivor());
-    let env = fixture.pack(&[]);
-    fixture.rewrite("manifest.json", &manifest(&[]));
-
-    let failure = inputs::read(&env, &fixture.run_dir()).unwrap_err();
-
-    assert!(
-        matches!(failure, TriageFailure::MutantNotInManifest { .. }),
-        "{failure}"
-    );
-}
-
-#[test]
-fn a_run_that_kept_no_snapshot_has_nothing_to_run_a_witness_against() {
-    let fixture = RunFixture::of(&one_survivor());
-    let env = fixture.pack(&[]);
-    fixture.remove("snapshot");
-
-    let failure = inputs::read(&env, &fixture.run_dir()).unwrap_err();
-
-    assert!(
-        matches!(failure, TriageFailure::NoSnapshot { .. }),
-        "{failure}"
-    );
-}
-
-#[test]
-fn a_snapshot_holding_other_bytes_than_the_run_measured_is_refused() {
-    let fixture = RunFixture::of(&one_survivor());
-    let env = fixture.pack(&[]);
-    std::fs::write(
-        fixture.snapshot().join(FILE),
-        SOURCE.replace("minutes >= 60", "minutes >= 61"),
-    )
-    .unwrap();
-
-    let failure = inputs::read(&env, &fixture.run_dir()).unwrap_err();
-
-    assert!(
-        matches!(failure, TriageFailure::SnapshotIsAnotherFile { .. }),
-        "{failure}"
-    );
-}
-
-#[test]
-fn a_directory_that_is_not_a_run_is_refused_before_anything_is_read() {
-    let fixture = RunFixture::of(&one_survivor());
-    let env = fixture.pack(&[]);
-
-    let failure = inputs::read(&env, &fixture.run_dir().join("nowhere")).unwrap_err();
-
-    assert!(
-        matches!(failure, TriageFailure::NoRunDirectory { .. }),
-        "{failure}"
-    );
-}
-
-#[test]
-fn a_report_that_is_not_a_report_says_which_document_it_was() {
-    let fixture = RunFixture::of(&one_survivor());
-    let env = fixture.pack(&[]);
-    fixture.rewrite("report.json", &json!({"not": "a report"}));
-
-    let failure = inputs::read(&env, &fixture.run_dir()).unwrap_err();
-
-    match failure {
-        TriageFailure::Invalid { what, .. } => assert_eq!(what, "report"),
-        other => panic!("{other}"),
-    }
 }
 
 /// A survivor of no function at all is not something a model can be asked about,
@@ -543,29 +454,5 @@ fn a_mutation_inside_no_function_is_undecided_without_a_call() {
     assert_eq!(
         judged.spend.calls, 0,
         "nothing was asked, so nothing was paid"
-    );
-}
-
-/// The survivors a triage reads are the ones a report calls survived, joined to the
-/// manifest by identifier — and the function each one lands in is worked out from
-/// the snapshot rather than from anything in the working tree.
-#[test]
-fn the_survivors_are_read_out_of_the_runs_own_three_documents() {
-    let fixture = RunFixture::of(&one_survivor());
-    let env: PythonEnv = fixture.pack(&[]);
-
-    let read = inputs::read(&env, &fixture.run_dir()).unwrap();
-
-    assert_eq!(read.run_id, triage_fixture::RUN_ID);
-    assert_eq!(read.mutants, 2);
-    let survivors: Vec<&Survivor> = read.survivors.iter().collect();
-    assert_eq!(survivors.len(), 1);
-    assert_eq!(survivors[0].function_name, "needs_break");
-    assert_eq!(survivors[0].mutant.id, fixture.ids[1]);
-    assert!(survivors[0].function.contains("return minutes >= 60"));
-    assert_eq!(
-        read.snapshot,
-        std::fs::canonicalize(fixture.snapshot()).unwrap(),
-        "the root a witness runs under is the run's own snapshot, resolved"
     );
 }

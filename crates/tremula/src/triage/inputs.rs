@@ -49,6 +49,20 @@ pub struct Survivor {
     pub function_name: String,
 }
 
+/// One snapshotted file a survivor is in, as the run recorded it.
+///
+/// Kept whole and beside the survivors, because a question about a *file* has to be
+/// answered against the file. Whether a recorded decision still names anything is
+/// such a question, and asking it of the one function a mutation lands in would call
+/// every decision about the file's other functions stale.
+#[derive(Debug, Clone)]
+pub struct SnapshotSource {
+    /// The file, as the manifest spells it.
+    pub file: String,
+    /// Its bytes as text, however they decode.
+    pub text: String,
+}
+
 /// Everything one run directory offers a triage.
 #[derive(Debug)]
 pub struct Inputs {
@@ -60,6 +74,8 @@ pub struct Inputs {
     pub snapshot: PathBuf,
     /// The survivors, in the report's order.
     pub survivors: Vec<Survivor>,
+    /// Every file a survivor is in, once each, in the order they were first met.
+    pub sources: Vec<SnapshotSource>,
     /// How many mutants the run had in all, for the console's sense of proportion.
     pub mutants: usize,
 }
@@ -101,12 +117,13 @@ pub fn read(env: &PythonEnv, run_dir: &Path) -> Result<Inputs, TriageFailure> {
     if !snapshot.is_dir() {
         return Err(TriageFailure::NoSnapshot { run_dir: resolved });
     }
-    let survivors = surviving(env, &resolved, &snapshot, &report, &manifest)?;
+    let (survivors, sources) = surviving(env, &resolved, &snapshot, &report, &manifest)?;
     Ok(Inputs {
         run_dir: resolved,
         run_id,
         snapshot,
         survivors,
+        sources,
         mutants: manifest.mutants.len(),
     })
 }
@@ -127,14 +144,15 @@ fn document<T: serde::de::DeserializeOwned>(
     })
 }
 
-/// Every mutant the suite failed to catch, with the function it lands in.
+/// Every mutant the suite failed to catch, with the function it lands in, and every
+/// file they are in.
 fn surviving(
     env: &PythonEnv,
     run_dir: &Path,
     snapshot: &Path,
     report: &Report,
     manifest: &Manifest,
-) -> Result<Vec<Survivor>, TriageFailure> {
+) -> Result<(Vec<Survivor>, Vec<SnapshotSource>), TriageFailure> {
     let mut reported: Vec<&Mutant> = Vec::new();
     for verdict in &report.verdicts {
         if verdict.verdict != Verdict::Survived {
@@ -170,7 +188,14 @@ fn surviving(
             function_name,
         });
     }
-    Ok(survivors)
+    let sources = described
+        .iter()
+        .map(|(file, _, bytes)| SnapshotSource {
+            file: file.clone(),
+            text: String::from_utf8_lossy(bytes).into_owned(),
+        })
+        .collect();
+    Ok((survivors, sources))
 }
 
 /// Ask the pack about one snapshotted file, and check it is the run's own bytes.

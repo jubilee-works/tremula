@@ -188,16 +188,30 @@ impl Dismissals {
     }
 }
 
+/// What there is to say about `file`'s stale decisions, or nothing to say.
+///
+/// One line for the file rather than one for each decision, and `source` is the whole
+/// of the file: a decision is stale when the *file* no longer holds its text, so
+/// asking the question of anything smaller — the one function a mutation lands in,
+/// say — would call every decision about the file's other functions stale.
+#[must_use]
+pub fn stale_warning(dismissals: &Dismissals, file: &str, source: &str) -> Option<String> {
+    let stale = dismissals.stale_for(file, source);
+    if stale == 0 {
+        return None;
+    }
+    Some(format!(
+        "{stale} stale suppression(s): the text they name is no longer in `{file}`; they are \
+         kept, and nothing was dropped"
+    ))
+}
+
 /// Say how many decisions no longer name anything in the file.
 ///
 /// On the warning channel and never on the outcome: a stale decision changes nothing
 /// about what a command does, and a reader who is told the number can go and look.
 pub fn warn_about_stale(dismissals: &Dismissals, file: &str, source: &str) {
-    let stale = dismissals.stale_for(file, source);
-    if stale > 0 {
-        eprintln!(
-            "warning: {stale} stale suppression(s): the text they name is no longer in `{file}`; \
-             they are kept, and nothing was dropped"
-        );
+    if let Some(said) = stale_warning(dismissals, file, source) {
+        eprintln!("warning: {said}");
     }
 }

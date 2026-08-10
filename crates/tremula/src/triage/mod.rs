@@ -50,8 +50,8 @@ use crate::{
     },
     pack, provenance, python_env,
     run_dir::TREMULA_DIR,
-    suppressions::{DEFAULT_SUPPRESSIONS, Dismissals, warn_about_stale},
-    triage::inputs::Survivor,
+    suppressions::{DEFAULT_SUPPRESSIONS, Dismissals, stale_warning},
+    triage::inputs::{SnapshotSource, Survivor},
 };
 
 pub mod classify;
@@ -123,14 +123,25 @@ pub fn triage(args: &TriageArgs) -> ExitCode {
 /// would arrive at.
 #[must_use]
 pub fn triage_with(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> ExitCode {
+    ExitCode::from(exit_status(args, judge))
+}
+
+/// The whole of the command: judge the run, say what came of it, and report which of
+/// the two things happened.
+///
+/// The number rather than an [`ExitCode`], because this is the decision and an
+/// `ExitCode` is a value nothing can read back. Zero whenever the judging happened,
+/// whatever it decided; [`EXIT_FAILURE`] when it could not happen.
+#[must_use]
+pub fn exit_status(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> u8 {
     match assess(args, judge) {
         Ok(judged) => {
             println!("{}", console::render_triage(&judged));
-            ExitCode::SUCCESS
+            0
         }
         Err(failure) => {
             eprintln!("error: {failure}");
-            ExitCode::from(EXIT_FAILURE)
+            EXIT_FAILURE
         }
     }
 }
@@ -171,8 +182,10 @@ pub fn assess(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> Result<Triage,
             None => asked_about.push(survivor),
         }
     }
+    for said in stale_warnings(&dismissals, &read.sources) {
+        eprintln!("warning: {said}");
+    }
     for survivor in asked_about {
-        warn_about_stale(&dismissals, &survivor.mutant.file, &survivor.function);
         let assessed = classify::assess(judge, &env, &read.snapshot, survivor)?;
         attempts.extend(assessed.attempts);
         model_resolved = model_resolved.or(assessed.model_resolved);
@@ -207,6 +220,20 @@ pub fn assess(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> Result<Triage,
     };
     write(&read.run_dir.join(TRIAGE_DOCUMENT), &judged)?;
     Ok(judged)
+}
+
+/// Everything there is to say about decisions whose text has gone, one line per file.
+///
+/// Per file, and not per survivor: the same file holds every survivor of it, and a
+/// triage that asked the question once for each of them would say the same sentence
+/// as many times as the file had survivors. A warning a reader has learned to scroll
+/// past is a warning that is no longer being read.
+#[must_use]
+pub fn stale_warnings(dismissals: &Dismissals, sources: &[SnapshotSource]) -> Vec<String> {
+    sources
+        .iter()
+        .filter_map(|source| stale_warning(dismissals, &source.file, &source.text))
+        .collect()
 }
 
 /// Which run to read: the one named, or the newest.

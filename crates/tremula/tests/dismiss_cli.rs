@@ -15,7 +15,7 @@ use std::fs;
 
 use serde_json::json;
 use tremula::{
-    dismiss::{DismissArgs, DismissFailure, Recorded, record},
+    dismiss::{DismissArgs, DismissFailure, Recorded, confirmation, record},
     suppressions::{DEFAULT_SUPPRESSIONS, Dismissals, SuppressionError},
 };
 use tremula_contracts::suppressions::DismissalReason;
@@ -104,6 +104,40 @@ fn dismissing_the_same_survivor_twice_records_it_once() {
     assert!(matches!(again, Recorded::Already(..)));
     let dismissals = Dismissals::load(&fixture.project().join(DEFAULT_SUPPRESSIONS)).unwrap();
     assert_eq!(dismissals.all().len(), 1);
+}
+
+/// Dismissing something twice tells the person what the recorded decision says.
+///
+/// The second dismissal changes nothing, which means a different reason typed the
+/// second time is not the reason on the record. Saying only "already dismissed" leaves
+/// finding that out to whoever thinks to open the file.
+#[test]
+fn dismissing_again_says_the_reason_that_is_already_on_the_record() {
+    let fixture = RunFixture::of(&a_run());
+    let survivor = fixture.ids[1].clone();
+
+    record(&dismissing(
+        &fixture,
+        &survivor,
+        DismissalReason::Equivalent,
+    ))
+    .unwrap();
+    let again = record(&dismissing(&fixture, &survivor, DismissalReason::NotUseful)).unwrap();
+
+    match &again {
+        Recorded::Already(_, _, decision) => {
+            assert_eq!(decision.reason, DismissalReason::Equivalent);
+            assert!(!decision.dismissed_at.is_empty());
+        }
+        Recorded::Added(..) => panic!("it was recorded a second time"),
+    }
+    let said = confirmation(&again);
+    assert!(said.contains("already dismissed"), "{said}");
+    assert!(said.contains("equivalent"), "{said}");
+    assert!(!said.contains("not-useful"), "{said}");
+    let dismissals = Dismissals::load(&fixture.project().join(DEFAULT_SUPPRESSIONS)).unwrap();
+    assert_eq!(dismissals.all().len(), 1);
+    assert_eq!(dismissals.all()[0].reason, DismissalReason::Equivalent);
 }
 
 #[test]

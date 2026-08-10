@@ -45,6 +45,38 @@ def needs_break(minutes: int) -> bool:
     return minutes >= 60
 ";
 
+/// One survivor of `needs_break`, which is the fixture's loose boundary.
+pub fn one_survivor() -> [Mutation; 2] {
+    [
+        Mutation {
+            original: "other_start < end",
+            replacement: "other_start <= end",
+            verdict: "killed",
+        },
+        Mutation {
+            original: "minutes >= 60",
+            replacement: "minutes > 60",
+            verdict: "survived",
+        },
+    ]
+}
+
+/// Both of the fixture's mutations, surviving, so that one file holds two survivors.
+pub fn two_survivors() -> [Mutation; 2] {
+    [
+        Mutation {
+            original: "other_start < end",
+            replacement: "other_start <= end",
+            verdict: "survived",
+        },
+        Mutation {
+            original: "minutes >= 60",
+            replacement: "minutes > 60",
+            verdict: "survived",
+        },
+    ]
+}
+
 /// One mutation of the fixture's source, spelled the way a person would.
 pub struct Mutation {
     /// The text it replaces, which must occur once in [`SOURCE`].
