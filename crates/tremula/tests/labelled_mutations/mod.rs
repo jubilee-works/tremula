@@ -35,18 +35,44 @@ pub const MODEL: &str = "gpt-5.2-2025-12-11";
 /// The run the fixture's directory is named after.
 pub const RUN_ID: &str = "20260810T120000Z-labels";
 
-/// How many calls the measurement may ever make. Counted before a call is sent, so a
-/// call that fails is a call that was spent.
-pub const MAX_CALLS: usize = 50;
+/// How many attempts one judgement may cost at worst.
+///
+/// The first, one more after a provider says to slow down, and one more to correct an
+/// answer that did not fit the schema. All three are booked before the judgement is
+/// asked for, because the ceiling has to hold against what a judgement *may* cost: one
+/// that booked a single call and then made three would pass the ceiling before anything
+/// noticed, which is exactly the failure a ceiling exists to prevent.
+pub const ATTEMPTS_PER_JUDGEMENT: usize = 3;
+
+/// How many calls the measurement may ever make.
+///
+/// Forty judgements at [`ATTEMPTS_PER_JUDGEMENT`] attempts each, which is the fixture
+/// with room for a mutation or two more. A ceiling that a legitimate recording of the
+/// fixture could trip would be a ceiling somebody raises in a hurry, so it is set where
+/// the arithmetic puts it and the fixture is held to fitting inside it.
+pub const MAX_CALLS: usize = 120;
 
 /// How many tokens it may ever consume. The other half of the same ceiling, because a
 /// call is not a fixed price.
-pub const MAX_TOTAL_TOKENS: u64 = 400_000;
+///
+/// The same arithmetic: forty judgements, three attempts each, [`BOOKED_PER_CALL`]
+/// tokens booked for every one of them, which comes to 960,000. What that is in money
+/// is the number worth knowing before setting the recording variable: a million tokens
+/// costs a dollar where output is priced at a dollar per million and ten dollars where
+/// it is priced at ten, so the worst this target can spend — every attempt of every
+/// judgement, all of it billed at the output rate — is single-digit dollars. The
+/// measurement as it stands spends 37,546 tokens over 38 calls, under four per cent of
+/// the ceiling. The ceiling is not a budget for the work; it is a stop on a mistake,
+/// before the mistake becomes a bill anybody has to explain.
+pub const MAX_TOTAL_TOKENS: u64 = 1_000_000;
 
-/// What one call is booked as before it is made: the answer's ceiling, plus room for a
-/// prompt. A call is charged for what it used, but a budget that only counts what
+/// What one attempt is booked as before it is made: the answer's ceiling, plus room for
+/// a prompt. An attempt is charged for what it used, but a budget that only counts what
 /// already happened is a budget that can be overrun exactly once.
 pub const BOOKED_PER_CALL: u64 = 8_000;
+
+/// What one whole judgement is booked as, worst case, before it is asked for.
+pub const BOOKED_PER_JUDGEMENT: u64 = BOOKED_PER_CALL * ATTEMPTS_PER_JUDGEMENT as u64;
 
 /// The variable that asks for the recordings to be taken again.
 pub const RECORD_VARIABLE: &str = "TREMULA_JUDGE_RECORD";
@@ -295,6 +321,38 @@ impl Recorded {
         let ledger = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
         (ledger.calls, ledger.tokens)
     }
+
+    /// Book one judgement's worst case before a byte of it is sent.
+    ///
+    /// The whole of what it may cost, not the one attempt it will make if nothing goes
+    /// wrong: a ceiling checked against an optimistic booking is a ceiling that can be
+    /// passed by the retries of the judgement that reaches it.
+    fn book(&self) {
+        let mut ledger = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
+        assert!(
+            ledger.calls + ATTEMPTS_PER_JUDGEMENT <= MAX_CALLS,
+            "the call ceiling of {MAX_CALLS} leaves no room for another judgement's \
+             {ATTEMPTS_PER_JUDGEMENT} attempts; nothing further is sent"
+        );
+        assert!(
+            ledger.tokens + BOOKED_PER_JUDGEMENT <= MAX_TOTAL_TOKENS,
+            "the token ceiling of {MAX_TOTAL_TOKENS} would be passed; nothing further is sent"
+        );
+        ledger.calls += ATTEMPTS_PER_JUDGEMENT;
+        ledger.tokens += BOOKED_PER_JUDGEMENT;
+    }
+
+    /// Put the booking right once the judgement is over, however it ended.
+    ///
+    /// Both ways it can end, because a judgement that failed still made the attempts it
+    /// made and still cost what they cost: reconciling only the answers would leave the
+    /// ledger reading whatever the booking guessed for every judgement that went wrong.
+    fn settle(&self, attempts: &[Attempt]) {
+        let spent: u64 = attempts.iter().map(|attempt| attempt.usage.total).sum();
+        let mut ledger = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
+        ledger.calls = ledger.calls.saturating_sub(ATTEMPTS_PER_JUDGEMENT) + attempts.len();
+        ledger.tokens = ledger.tokens.saturating_sub(BOOKED_PER_JUDGEMENT) + spent;
+    }
 }
 
 impl EquivalenceJudge for Recorded {
@@ -318,32 +376,15 @@ impl EquivalenceJudge for Recorded {
                 }],
             });
         };
-        // Booked before the call, so a call that fails is one that was spent. A
-        // ceiling that only counts what already happened can be overrun once.
-        {
-            let mut ledger = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
-            assert!(
-                ledger.calls < MAX_CALLS,
-                "the call ceiling of {MAX_CALLS} is reached; nothing further is sent"
-            );
-            assert!(
-                ledger.tokens + BOOKED_PER_CALL <= MAX_TOTAL_TOKENS,
-                "the token ceiling of {MAX_TOTAL_TOKENS} would be passed; nothing further is sent"
-            );
-            ledger.calls += 1;
-            ledger.tokens += BOOKED_PER_CALL;
-        }
-        let outcome = live.judge(request)?;
-        {
-            let mut ledger = self.ledger.lock().unwrap_or_else(PoisonError::into_inner);
-            ledger.tokens = ledger.tokens - BOOKED_PER_CALL
-                + outcome
-                    .attempts
-                    .iter()
-                    .map(|attempt| attempt.usage.total)
-                    .sum::<u64>();
-            ledger.calls += outcome.attempts.len().saturating_sub(1);
-        }
+        // Booked whole before the call, so that a judgement which retries cannot spend
+        // its way past the ceiling, and settled afterwards either way it ended.
+        self.book();
+        let answered = live.judge(request);
+        self.settle(match &answered {
+            Ok(outcome) => &outcome.attempts,
+            Err(failure) => &failure.attempts,
+        });
+        let outcome = answered?;
         fs::create_dir_all(&self.directory).unwrap();
         let usage = outcome
             .attempts

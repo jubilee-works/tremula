@@ -1,7 +1,7 @@
 """Recurring events, and the boundaries they are easy to get wrong at.
 
-Original code written for this spike. Weekdays are numbered the way
-`date.weekday()` numbers them: Monday is 0.
+Written as a subject to measure the judging against, and taken from nowhere
+else. Weekdays are numbered the way `date.weekday()` numbers them: Monday is 0.
 """
 
 from calendar import monthrange

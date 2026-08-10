@@ -45,10 +45,15 @@
 
 mod labelled_mutations;
 
-use std::{collections::BTreeMap, fs};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::PathBuf,
+};
 
 use labelled_mutations::{
-    Golden, Labelled, MAX_CALLS, MAX_TOTAL_TOKENS, RECORD_VARIABLE, Recorded, labels, recordings,
+    ATTEMPTS_PER_JUDGEMENT, Golden, Labelled, MAX_CALLS, MAX_TOTAL_TOKENS, RECORD_VARIABLE,
+    Recorded, labels, recordings,
 };
 use tremula::{
     generate::{judge::JudgementRequest, openai::KEY_VARIABLE},
@@ -234,6 +239,35 @@ fn the_fixture_still_holds_what_the_measurement_was_taken_over() {
         "the pinned matrix accounts for every labelled mutation and no others"
     );
 
+    // No two labels are about one mutation. A duplicate would be judged once and
+    // counted twice, so a cell of the matrix could be filled by copying a line of
+    // `labels.json` instead of by measuring anything — and the count of the label it
+    // sits under would still add up.
+    let mut once: BTreeSet<(&str, &str, &str)> = BTreeSet::new();
+    for mutation in &mutations {
+        let identity = (
+            mutation.file.as_str(),
+            mutation.original.as_str(),
+            mutation.replacement.as_str(),
+        );
+        assert!(
+            once.insert(identity),
+            "two labels are about `{} → {}` in {}, so the matrix counts one mutation twice",
+            mutation.original,
+            mutation.replacement,
+            mutation.file
+        );
+    }
+
+    // And the fixture stays inside the ceiling a recording is held to, so that growing
+    // it past what may be spent fails here rather than half way through a paid run.
+    assert!(
+        mutations.len() * ATTEMPTS_PER_JUDGEMENT <= MAX_CALLS,
+        "{} mutations at {ATTEMPTS_PER_JUDGEMENT} attempts each is more than the {MAX_CALLS} \
+         calls a recording may make",
+        mutations.len()
+    );
+
     // The mutations named as separable anyway are the ones the fixture registered, so
     // neither list can be edited into agreement with the other on its own.
     let separable: Vec<&Labelled> = mutations
@@ -353,15 +387,17 @@ fn the_confusion_matrix_is_the_measured_one_and_the_misses_are_the_named_ones() 
 }
 
 /// The judgements on disk are what the measurement stands on, so they are held to being
-/// about the fixture that is there now.
+/// about the fixture that is there now — one recording per label, one label per
+/// recording, and nothing on either side of that pairing left over.
 #[test]
-fn every_labelled_mutation_has_a_recorded_judgement() {
+fn every_labelled_mutation_has_a_recorded_judgement_and_reads_only_its_own() {
     if std::env::var(RECORD_VARIABLE).is_ok() {
         eprintln!("skipped: this run is recording them");
         return;
     }
     let judge = Recorded::replaying(recordings());
     let mut missing = Vec::new();
+    let mut read: BTreeSet<PathBuf> = BTreeSet::new();
     for mutation in labels() {
         let request = JudgementRequest {
             file: mutation.file.clone(),
@@ -373,13 +409,26 @@ fn every_labelled_mutation_has_a_recorded_judgement() {
         if !path.is_file() {
             missing.push(format!("{} → {}", mutation.original, mutation.replacement));
         }
+        // Two labels reading one recording would be two classifications standing on one
+        // answer, and the second of them would be a measurement of nothing.
+        assert!(
+            read.insert(path.clone()),
+            "`{} → {}` reads the same recording as another label, at {}",
+            mutation.original,
+            mutation.replacement,
+            path.display()
+        );
     }
     assert!(missing.is_empty(), "no recorded judgement for {missing:#?}");
-    let kept = fs::read_dir(recordings()).unwrap().count();
+    let kept: BTreeSet<PathBuf> = fs::read_dir(recordings())
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(kept.len(), 38);
     assert_eq!(
-        kept, 38,
-        "the recordings are exactly the fixture's mutations, with none left over from a \
-         fixture that has since changed"
+        read, kept,
+        "the recordings are exactly the fixture's mutations: every one of them is read by \
+         one label, and none is left over from a fixture that has since changed"
     );
 }
 

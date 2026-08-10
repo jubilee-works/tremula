@@ -1,7 +1,8 @@
 """Local calendar days, and the two hours a year that make them differ.
 
-Original code written for this spike. A local day is not always 24 hours long,
-and an event that stops exactly at midnight belongs to the day before it.
+Written as a subject to measure the judging against, and taken from nowhere
+else. A local day is not always 24 hours long, and an event that stops exactly
+at midnight belongs to the day before it.
 """
 
 from datetime import date, datetime, time, timedelta

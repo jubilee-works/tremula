@@ -411,8 +411,8 @@
       "function": "nth_weekday",
       "file": "recurrence.py",
       "span": {
-        "start_byte": 1445,
-        "end_byte": 1498
+        "start_byte": 1489,
+        "end_byte": 1542
       },
       "original": "backwards = (last.weekday() - weekday) % DAYS_IN_WEEK",
       "replacement": "backwards = (weekday - last.weekday()) % DAYS_IN_WEEK",
@@ -424,8 +424,8 @@
       "function": "crosses_midnight",
       "file": "timezones.py",
       "span": {
-        "start_byte": 1369,
-        "end_byte": 1403
+        "start_byte": 1413,
+        "end_byte": 1447
       },
       "original": "began.date() != last_moment.date()",
       "replacement": "began.date() < last_moment.date()",
@@ -438,8 +438,8 @@
       "function": "crosses_midnight",
       "file": "timezones.py",
       "span": {
-        "start_byte": 1308,
-        "end_byte": 1357
+        "start_byte": 1352,
+        "end_byte": 1401
       },
       "original": "last_moment = stopped - timedelta(microseconds=1)",
       "replacement": "last_moment = stopped - timedelta(seconds=1)",
@@ -451,8 +451,8 @@
       "function": "crosses_midnight",
       "file": "timezones.py",
       "span": {
-        "start_byte": 1362,
-        "end_byte": 1403
+        "start_byte": 1406,
+        "end_byte": 1447
       },
       "original": "return began.date() != last_moment.date()",
       "replacement": "return began.date() < last_moment.date()",
@@ -465,8 +465,8 @@
       "function": "crosses_midnight",
       "file": "timezones.py",
       "span": {
-        "start_byte": 1143,
-        "end_byte": 1159
+        "start_byte": 1187,
+        "end_byte": 1203
       },
       "original": "stopped <= began",
       "replacement": "stopped < began",
@@ -478,8 +478,8 @@
       "function": "crosses_midnight",
       "file": "timezones.py",
       "span": {
-        "start_byte": 1332,
-        "end_byte": 1357
+        "start_byte": 1376,
+        "end_byte": 1401
       },
       "original": "timedelta(microseconds=1)",
       "replacement": "timedelta(seconds=1)",
@@ -491,8 +491,8 @@
       "function": "day_bounds",
       "file": "timezones.py",
       "span": {
-        "start_byte": 638,
-        "end_byte": 652
+        "start_byte": 682,
+        "end_byte": 696
       },
       "original": "ZoneInfo(zone)",
       "replacement": "ZoneInfo(str(zone))",
@@ -505,8 +505,8 @@
       "function": "day_bounds",
       "file": "timezones.py",
       "span": {
-        "start_byte": 743,
-        "end_byte": 760
+        "start_byte": 787,
+        "end_byte": 804
       },
       "original": "timedelta(days=1)",
       "replacement": "timedelta(hours=24)",
