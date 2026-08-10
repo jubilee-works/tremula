@@ -286,7 +286,7 @@ fn suspected(survivor: &Survivor) -> Assessed {
         entry: TriageEntry {
             classification: Classification::SuspectedEquivalent,
             detail: "the model said the mutation cannot change what the function does, and \
-                     nothing ran to check that"
+                     nothing ran to check that — verify it before dismissing it"
                 .to_owned(),
             ..blank(survivor)
         },

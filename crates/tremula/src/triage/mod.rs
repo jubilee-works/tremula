@@ -82,7 +82,7 @@ const CAVEATS: [&str; 4] = [
     "distinguished_at_function_level = one input separated the two versions of the function; \
      whether the program around it can reach that input is unverified",
     "suspected_equivalent = a model said the mutation changes nothing, and nothing ran to \
-     check it",
+     check it; it is a suggestion to verify, never a reason to dismiss on its own",
     "an input that showed no difference is not evidence that no input would",
     "nothing here retires a survivor: every one of them is still for a person to accept or \
      dismiss",
