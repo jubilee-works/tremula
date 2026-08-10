@@ -39,10 +39,12 @@ then fails for the wrong reason and is recorded as a detection. The operator
 strips the wrapper and transplants the original node's prefix.
 
 **A span is checked against the parse tree before the session exists.** The pack
-confirms that each span lines up with exactly one node the operator could match.
-That is what gives a missing work item its meaning: with spans pre-checked, a
-mutant that produces no job is an adapter defect rather than a span that never had
-a chance.
+confirms that each span lines up with exactly one node the operator could match,
+and that the target file still compiles with the replacement spliced into that
+span — the same splice the operator performs, so the file that is checked is the
+file that runs. That is what gives a missing work item its meaning: with spans
+pre-checked, a mutant that produces no job is an adapter defect rather than a span
+that never had a chance.
 
 ## Two time limits, not one
 
@@ -104,7 +106,10 @@ ones, and walks each of them over every module in scope. A nine-line module
 produces dozens of work items nobody asked for. The pack marks every job that is
 not one of its own as skipped — using the same mechanism Cosmic Ray's own filter
 tools use — and then checks that each manifest mutant is left with exactly one
-job. Zero or more than one is an adapter defect and stops the run.
+job. Zero or more than one is an adapter defect, and that mutant is left out of the
+run and reported as never applied rather than ending it: more than one job means
+two nodes answer to the same description, so every one of them is left unrun
+instead of one being picked.
 
 ## Version range
 

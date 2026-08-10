@@ -179,6 +179,85 @@ pub enum ValidationError {
     },
 }
 
+/// Why one file of the project cannot be a mutation target, said without a mutant
+/// to name.
+///
+/// The same rules [`ValidationError`] reports about a manifest's target, for a
+/// caller that has a path and no manifest yet. Each message says the same thing
+/// its counterpart does, because a caller who fixes the file has to satisfy the
+/// same validation afterwards.
+#[derive(Debug, thiserror::Error)]
+pub enum TargetFileError {
+    /// The path is absolute or leaves the project root.
+    #[error(
+        "`{file}` is not a plain relative path inside the project; use a POSIX path relative to the project root"
+    )]
+    NotProjectRelative {
+        /// The path as given.
+        file: String,
+    },
+    /// The project root itself could not be resolved.
+    #[error(
+        "cannot resolve the project root: {reason}; check that the directory exists and is readable"
+    )]
+    RootUnresolvable {
+        /// What the operating system reported.
+        reason: String,
+    },
+    /// The file is a symbolic link rather than a file of the project's own.
+    #[error(
+        "`{file}` is a symbolic link; name the real file inside the project, because mutating a link edits a file the project does not own"
+    )]
+    Symlink {
+        /// The path that is a link.
+        file: String,
+    },
+    /// The path resolves to somewhere outside the project.
+    #[error(
+        "`{file}` resolves to a location outside the project root; only a file the project itself contains can be mutated"
+    )]
+    OutsideProject {
+        /// The path that leads out of the project.
+        file: String,
+    },
+    /// The file does not exist.
+    #[error("`{file}` does not exist under the project root")]
+    Missing {
+        /// The path that was looked up.
+        file: String,
+    },
+    /// The file is there but could not be read.
+    #[error("cannot read `{file}`: {reason}; check that it is a readable regular file")]
+    Unreadable {
+        /// The path that could not be read.
+        file: String,
+        /// What the operating system reported.
+        reason: String,
+    },
+    /// The file is not valid UTF-8 at all.
+    #[error("`{file}` is not valid UTF-8; only plain UTF-8 sources are supported")]
+    NotUtf8 {
+        /// The path that cannot be decoded.
+        file: String,
+    },
+    /// The file carries a BOM or declares a non-UTF-8 coding cookie.
+    #[error(
+        "`{file}` carries a byte-order mark or declares a non-UTF-8 coding cookie; only plain UTF-8 sources are supported"
+    )]
+    UnsupportedEncoding {
+        /// The path that announces another encoding.
+        file: String,
+    },
+    /// The file uses CRLF line endings.
+    #[error(
+        "`{file}` uses CRLF line endings; convert the file to LF before generating mutants for it"
+    )]
+    UnsupportedLineEndings {
+        /// The path that uses CRLF.
+        file: String,
+    },
+}
+
 /// A non-fatal observation about the manifest.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationWarning {

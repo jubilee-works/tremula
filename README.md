@@ -18,9 +18,38 @@ uv add --dev tremula-python
 ```
 
 A manifest names a file, the byte range to replace, and what to replace it with.
-Every mutant's `id` is derived from those fields, so the same mutation always has
-the same identifier — see `contracts/schemas/manifest.schema.json` for the
-derivation and the rest of the rules.
+You can write one by hand, or ask a model for one:
+
+```sh
+export OPENAI_API_KEY=...
+tremula generate --file schedule.py --function overlaps \
+  --tests test_schedule.py --model gpt-5.2-2025-12-11
+```
+
+```
+tremula generate · schedule.py · 1 function(s) · model: gpt-5.2-2025-12-11
+
+  overlaps: 4 proposed · 3 recorded · refused: original_ambiguous ×1
+
+wrote 3 mutant(s) to /path/to/project/tremula-manifest.json
+tokens: 682 prompt · 436 completion · 1118 total
+exit 0 (3 mutant(s) to run)
+```
+
+Every function to mutate is named — there is no automatic choice of what is worth
+mutating yet — and `--tests` names test *files*, which are read and shown to the
+model so that it aims past what your suite already catches. An existing manifest
+is never written over. What the model proposes is checked against your file and
+your language before it is written down, so `refused` is ordinary rather than
+alarming; the mutations that survive are the ones a run can actually apply.
+
+**Asking a model costs money and sends the named files to its provider.** Nothing
+else in tremula makes a network call.
+
+Every mutant's `id` is derived from the file, the span, the file's hash and the
+replacement, so the same mutation always has the same identifier — see
+`contracts/schemas/manifest.schema.json` for the derivation and the rest of the
+rules.
 
 ```json
 {
@@ -45,13 +74,13 @@ Check it before running it — this compares the manifest against the bytes on
 disk and needs nothing installed:
 
 ```sh
-tremula validate --manifest mutants.json
+tremula validate --manifest tremula-manifest.json
 ```
 
 Then run it:
 
 ```sh
-tremula run --manifest mutants.json
+tremula run --manifest tremula-manifest.json
 ```
 
 ```

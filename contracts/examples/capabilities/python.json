@@ -4,9 +4,10 @@
   "contract_version": "0.1",
   "subcommands": ["run", "collect", "validate", "spans"],
   "validate_checks": [
-    "parses",
+    "compiles_in_file",
     "single_statement",
     "round_trips",
-    "span_matches_node"
+    "span_matches_node",
+    "ast_equal"
   ]
 }

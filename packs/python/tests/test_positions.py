@@ -3,8 +3,8 @@ import pytest
 from tremula_python.contracts import Span
 from tremula_python.positions import (
     byte_span_to_positions,
+    injection_problems,
     node_for_span,
-    validate_replacement,
 )
 
 
@@ -74,21 +74,32 @@ def test_a_span_reaching_past_the_end_of_the_file_is_rejected() -> None:
 
 
 def test_a_valid_replacement_reports_no_errors() -> None:
-    assert validate_replacement("x = 1\n") == []
+    assert injection_problems("x = 1\n") == []
 
 
-def test_a_syntactically_broken_replacement_reports_an_error() -> None:
-    # `parso.parse` recovers from anything, so `iter_errors` is the only check.
-    assert validate_replacement("def f(:\n") != []
+def test_a_fragment_that_is_no_module_of_its_own_passes_here() -> None:
+    # Syntax is not this function's question. `return errors` parses as nothing on
+    # its own and is exactly right inside a function, so whether a replacement is
+    # valid Python is asked of the file it makes, in `preflight`.
+    assert injection_problems("return errors") == []
+    assert injection_problems("if not errors:\n    return errors") == []
 
 
 def test_a_replacement_with_two_top_level_statements_is_rejected() -> None:
     # This parses cleanly, but `mutate` can only return one node.
-    assert validate_replacement("x = 2\ny = 3") != []
+    assert injection_problems("x = 2\ny = 3") != []
+
+
+@pytest.mark.parametrize("replacement", ["def f(:\n", "except ValueError:"])
+def test_broken_syntax_that_recovers_as_two_pieces_is_still_rejected(replacement: str) -> None:
+    # Arity catches what the dropped syntax check used to: parso recovers from
+    # these as an error leaf followed by an error node, which is two statements
+    # where one node is wanted.
+    assert injection_problems(replacement) != []
 
 
 def test_an_empty_replacement_is_allowed_because_it_deletes() -> None:
-    assert validate_replacement("") == []
+    assert injection_problems("") == []
 
 
 @pytest.mark.parametrize(
@@ -103,7 +114,7 @@ def test_a_replacement_that_would_lose_text_is_rejected(replacement: str) -> Non
     # parso keeps comments and blank lines in a leaf's `prefix`, and the operator
     # replaces the prefix with the original node's. Anything living there is
     # dropped silently, so it has to be refused before the run starts.
-    assert validate_replacement(replacement) != []
+    assert injection_problems(replacement) != []
 
 
 @pytest.mark.parametrize(
@@ -116,7 +127,7 @@ def test_a_replacement_that_would_lose_text_is_rejected(replacement: str) -> Non
     ],
 )
 def test_a_replacement_that_survives_a_reparse_is_accepted(replacement: str) -> None:
-    assert validate_replacement(replacement) == []
+    assert injection_problems(replacement) == []
 
 
 def test_a_node_is_found_for_a_span_that_covers_it_exactly() -> None:

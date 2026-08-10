@@ -44,9 +44,10 @@ from cosmic_ray.config import (  # pyright: ignore[reportMissingTypeStubs] - cos
 )
 
 from tremula_python.contracts import Baseline, Manifest, Mutant, Stage
-from tremula_python.cr_operator import FULL_OPERATOR_NAME, shaped_like_the_span
+from tremula_python.cr_operator import FULL_OPERATOR_NAME, file_with_the_mutation
 from tremula_python.errors import PackFailure
 from tremula_python.positions import byte_span_to_positions
+from tremula_python.refusals import Refusal, Refused
 from tremula_python.run_layout import RunLayout, write_atomically
 
 BACKSTOP_MARGIN_SECONDS = 10.0
@@ -185,6 +186,49 @@ def build_config(
     return text
 
 
+def unserializable_mutants(manifest: Manifest, project_root: Path) -> Refused:
+    """Every mutant whose own text cannot be carried to the backend, by identifier.
+
+    The same defect `_check_the_mutants_survived` guards against, asked one mutant
+    at a time. That has to be a separate question rather than the same one: a
+    document written whole can only report that *some* value did not survive, and
+    a run that means to leave one mutant out has to name which. The document check
+    stays where it is, behind this, as the invariant that what reached the backend
+    is what was meant.
+    """
+    refused: Refused = {}
+    for mutant in manifest.mutants:
+        sent = _parameterization(mutant, project_root)
+        problem = _first_difference(sent, _round_tripped(sent))
+        if problem is not None:
+            refused[mutant.id] = Refusal(
+                UNSERIALIZABLE_MUTANT, f"mutant {mutant.id}: {problem}"
+            )
+    return refused
+
+
+def _round_tripped(sent: dict[str, str | int]) -> dict[str, object]:
+    """One mutant's arguments, written the way the session file writes them and read back."""
+    text = serialize_config({"operators": {FULL_OPERATOR_NAME: [sent]}})
+    restored = cast("dict[str, object]", deserialize_config(text))
+    operators = cast("dict[str, object]", restored.get("operators", {}))
+    carried = cast("list[dict[str, object]]", operators.get(FULL_OPERATOR_NAME, []))
+    return carried[0] if carried else {}
+
+
+def _first_difference(sent: dict[str, str | int], back: dict[str, object]) -> str | None:
+    """The first argument that did not come back as it went in, in words."""
+    for field, value in sent.items():
+        if back.get(field) == value:
+            continue
+        return (
+            f"its `{field}` cannot be carried to the backend, which reads its session as "
+            f"TOML — {_shortened(value)} comes back as {_shortened(back.get(field))}. "
+            "Rewrite the mutant so this text does not begin with a run of quote characters."
+        )
+    return None
+
+
 def _check_the_mutants_survived(text: str, parameterizations: list[dict[str, str | int]]) -> None:
     """Read the session file back and confirm every mutant is still itself.
 
@@ -194,6 +238,10 @@ def _check_the_mutants_survived(text: str, parameterizations: list[dict[str, str
     altered would match nothing and be reported much later as a job that never
     appeared — a defect in the adapter, from the reader's point of view. Refusing
     it here says what actually happened, before anything runs.
+
+    A run screens each mutant with `unserializable_mutants` first, so in practice
+    this is the check that has nothing left to find. It stays because it is asked
+    of the document that is really written, which is what the backend really reads.
 
     Raises:
         PackFailure: A value did not come back as it went in.
@@ -210,16 +258,12 @@ def _check_the_mutants_survived(text: str, parameterizations: list[dict[str, str
             "written as TOML",
         )
     for sent, back in zip(parameterizations, carried, strict=True):
-        for field, value in sent.items():
-            if back.get(field) == value:
-                continue
+        problem = _first_difference(sent, back)
+        if problem is not None:
             raise PackFailure(
                 Stage.PLAN,
                 UNSERIALIZABLE_MUTANT,
-                f"mutant {sent['mutant_id']}: its `{field}` cannot be carried to the backend, "
-                f"which reads its session as TOML — {_shortened(value)} comes back as "
-                f"{_shortened(back.get(field))}. Rewrite the mutant so this text does not "
-                "begin with a run of quote characters.",
+                f"mutant {sent['mutant_id']}: {problem}",
             )
 
 
@@ -341,18 +385,16 @@ def _parameterization(mutant: Mutant, project_root: Path) -> dict[str, str | int
 def _apply(mutant: Mutant, source_bytes: bytes) -> bytes:
     """The file as it will stand while `mutant` is applied.
 
-    Exactly the contract: the bytes of the span, replaced. The one liberty is the
-    operator's own shaping of the replacement, which strips a trailing newline the
-    span does not include and restores one it does, so that both spellings of a
-    replacement describe the same file. Nothing outside the span moves — a
-    prediction that allowed it to would bless a mutation that changed more than
-    the manifest asked for.
+    The splice itself belongs to the operator's module, because a prediction made
+    by a second implementation of it would bless a mutation the operator writes
+    differently — and `validate` compiles that same file to judge the mutant.
     """
-    injected = shaped_like_the_span(mutant.replacement, mutant.original)
-    return (
-        source_bytes[: mutant.span.start_byte]
-        + injected.encode("utf-8")
-        + source_bytes[mutant.span.end_byte :]
+    return file_with_the_mutation(
+        source_bytes,
+        mutant.span.start_byte,
+        mutant.span.end_byte,
+        mutant.original,
+        mutant.replacement,
     )
 
 

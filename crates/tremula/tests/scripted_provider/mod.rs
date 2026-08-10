@@ -215,6 +215,7 @@ pub fn request(mutant_count: usize) -> GenerationRequest {
             file: "test_ranges.py".to_owned(),
             source: "def test_touching_ranges_do_not_overlap():\n    assert not overlaps(0, 30, 30, 60)\n".to_owned(),
         }],
+        excluded: Vec::new(),
         mutant_count,
         feedback: None,
     }

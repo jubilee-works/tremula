@@ -1,11 +1,15 @@
 //! The console report: a view over a judged report, for people. Machines read
 //! the report document instead, so nothing here is meant to be parsed.
 
+use std::fmt::Write as _;
+
 use tremula_contracts::{
     baseline::Baseline,
     report::{MutantVerdict, Report, Score, Verdict},
     runner::RunnerResult,
 };
+
+use crate::generate::command::{Generated, exit_code};
 
 /// How much of a mutant's identifier is enough to tell it apart on screen.
 const SHORT_ID_CHARS: usize = 8;
@@ -58,6 +62,86 @@ pub fn render(report: &Report, baseline: Option<&Baseline>) -> String {
         exit_reason(report.score)
     ));
     lines.join("\n")
+}
+
+/// Render what a generation produced.
+///
+/// Every function gets a line whether or not it produced anything, because the
+/// exit code cannot say which one was the problem and this is the only place that
+/// can. A function whose round stopped early gets a second line saying so: the
+/// manifest is written anyway, and a reader who saw only the exit code would not
+/// know that what it holds is part of what was asked for.
+#[must_use]
+pub fn render_generation(generated: &Generated) -> String {
+    let mut lines = vec![
+        format!(
+            "tremula generate · {} · {} function(s) · model: {}",
+            generated.file,
+            generated.functions.len(),
+            generated.model
+        ),
+        String::new(),
+    ];
+    for outcome in &generated.functions {
+        let gathered = &outcome.gathered;
+        let mut line = format!(
+            "  {}: {} proposed · {} recorded",
+            outcome.function,
+            gathered.proposed,
+            gathered.mutants.len()
+        );
+        if gathered.duplicates > 0 {
+            let _ = write!(line, " · {} repeated", gathered.duplicates);
+        }
+        if !gathered.refused.is_empty() {
+            let refused: Vec<String> = gathered
+                .refused
+                .iter()
+                .map(|(defect, count)| format!("{defect} ×{count}"))
+                .collect();
+            let _ = write!(line, " · refused: {}", refused.join(", "));
+        }
+        lines.push(line);
+        if let Some(failure) = &gathered.failure {
+            lines.push(format!("  {}: stopped — {failure}", outcome.function));
+        }
+    }
+    lines.push(String::new());
+    lines.push(match &generated.manifest {
+        Some(path) => format!(
+            "wrote {} mutant(s) to {}",
+            generated.recorded,
+            path.display()
+        ),
+        None => "wrote nothing: no proposal survived the checks".to_owned(),
+    });
+    lines.push(format!(
+        "tokens: {} prompt · {} completion · {} total",
+        generated.tokens.prompt, generated.tokens.completion, generated.tokens.total
+    ));
+    lines.push(format!(
+        "exit {} ({})",
+        exit_code(generated),
+        generation_exit_reason(generated)
+    ));
+    lines.join("\n")
+}
+
+/// Why a generation exits the way it does, in the order the exit code decides it.
+fn generation_exit_reason(generated: &Generated) -> String {
+    let stopped: Vec<&str> = generated
+        .functions
+        .iter()
+        .filter(|outcome| outcome.gathered.failure.is_some())
+        .map(|outcome| outcome.function.as_str())
+        .collect();
+    if !stopped.is_empty() {
+        return format!("partial output: {} did not finish", stopped.join(", "));
+    }
+    if generated.recorded == 0 {
+        return "nothing to run".to_owned();
+    }
+    format!("{} mutant(s) to run", generated.recorded)
 }
 
 fn render_baseline(runner: &RunnerResult) -> String {

@@ -106,10 +106,28 @@ is non-empty, the bytes at the span equal `original`, `replacement` differs from
 `original`, the identifier is canonical, and no identifier repeats. A
 replacement above 10 KB is a warning, not an error.
 
-The **pack** checks the language: that each replacement parses, and that each
-span corresponds to a node the backend can actually match. A pack reports which
-of these checks it implements through `validate_checks` in its capabilities
-document, so a newer core can tell whether the checks it wants are available.
+The **pack** checks the language: that the file still compiles with the
+replacement spliced into the span, that the replacement can stand in for a single
+node without losing text, that the span corresponds to a node the backend can
+actually match, and that the mutated file's syntax tree differs from the
+original's. A pack reports which of these checks it implements through
+`validate_checks` in its capabilities document, so a newer core can tell whether
+the checks it wants are available.
+
+A replacement is judged by the file it makes rather than on its own, which is
+measured: of 144 proposals in one sweep, 34 were refused for not parsing alone and
+every one of them compiled once spliced in, while two that parsed alone broke the
+file they went into. Sixteen of the 34 are still refused, by arity and by the node
+boundary, because a bare compound-statement header is not a node any manifest can
+replace. And a compound statement's node ends *after* the newline that closes it,
+so a span aimed at one takes that newline in — into `original` as well, since the
+two are the same bytes.
+
+A mutant the pack refuses during a `run` is left out of the run rather than ending
+it: it is reported as `not_applied` with the reason under `backend_raw.refusal`,
+and only a manifest whose every mutant is refused fails outright.
+`contracts/pack-protocol.md` has the whole rule and the three places a refusal can
+come from.
 
 ## Verdicts
 

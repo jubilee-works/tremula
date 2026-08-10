@@ -4,7 +4,10 @@
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use tremula::orchestrate::{self, RestoreArgs, RunArgs, ValidateArgs};
+use tremula::{
+    generate::command::{self, GenerateArgs},
+    orchestrate::{self, RestoreArgs, RunArgs, ValidateArgs},
+};
 
 #[derive(Parser)]
 #[command(name = "tremula", version, about)]
@@ -15,6 +18,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Ask a model for mutants of named functions and write a manifest.
+    Generate(GenerateArgs),
     /// Run mutants from a manifest against the project's test suite.
     Run(RunArgs),
     /// Validate a mutant manifest without running anything.
@@ -25,6 +30,7 @@ enum Command {
 
 fn main() -> ExitCode {
     match Cli::parse().command {
+        Command::Generate(args) => command::generate(&args),
         Command::Run(args) => orchestrate::run(&args),
         Command::Validate(args) => orchestrate::validate(&args),
         Command::Restore(args) => orchestrate::restore(&args),

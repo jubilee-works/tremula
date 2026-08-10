@@ -132,7 +132,7 @@ class TremulaOperator(Operator):
 
         Raises:
             ValueError: The replacement is not a single statement, or injecting
-                it would drop part of its text. The pack's `validate_replacement`
+                it would drop part of its text. The pack's `injection_problems`
                 rejects both before Cosmic Ray runs, so reaching either means
                 validation was skipped — and failing loudly beats writing a file
                 that quietly lost something.
@@ -228,6 +228,30 @@ def shaped_like_the_span(replacement: str, original: str) -> str:
     if normalized and original.endswith("\n"):
         return normalized + "\n"
     return normalized
+
+
+def file_with_the_mutation(
+    source_bytes: bytes,
+    start_byte: int,
+    end_byte: int,
+    original: str,
+    replacement: str,
+) -> bytes:
+    """The file as it stands while this one mutation is applied.
+
+    Exactly the contract: the bytes of the span, replaced. The one liberty is
+    `shaped_like_the_span`, so that both spellings of a replacement describe the
+    same file. Nothing outside the span moves.
+
+    Public, and the only splice in the pack, because three readings of it have to
+    agree byte for byte: `validate` compiles this file to decide whether the
+    mutation is expressible at all, the session planner hashes it to know what
+    the file must look like while the suite runs, and the operator is what
+    produces it. A second implementation of the same three lines is how one of
+    them starts blessing a mutant another refuses.
+    """
+    injected = shaped_like_the_span(replacement, original)
+    return source_bytes[:start_byte] + injected.encode("utf-8") + source_bytes[end_byte:]
 
 
 def _adopt(replacement_node: ParsoNode, original_node: ParsoNode) -> ParsoNode:

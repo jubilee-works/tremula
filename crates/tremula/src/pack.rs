@@ -23,6 +23,7 @@ use tremula_contracts::{
     SCHEMA_VERSION,
     capabilities::Capabilities,
     pack_error::{PackError as PackErrorDocument, Stage},
+    spans::SpansReport,
 };
 
 use crate::{
@@ -32,6 +33,13 @@ use crate::{
 
 /// The subcommands a pack has to offer before the core will use it.
 pub const REQUIRED_SUBCOMMANDS: [&str; 3] = ["run", "collect", "validate"];
+
+/// The one a generation needs on top of those.
+///
+/// Only a generation asks for it, and only a core that asks for it needs it, which
+/// is why it is not among the subcommands every run requires: a pack that predates
+/// this call still runs a manifest somebody else generated.
+pub const SPANS_SUBCOMMAND: &str = "spans";
 
 /// Where a run keeps what the pack printed.
 const PACK_LOG: &str = "pack.txt";
@@ -54,6 +62,17 @@ pub enum PackError {
         /// What the operating system reported.
         reason: String,
     },
+    /// A document the pack was to read could not be written.
+    #[error(
+        "cannot write `{}` for the language pack to read: {reason}; check that the temporary directory is writable",
+        path.display()
+    )]
+    Unwritable {
+        /// The document that could not be written.
+        path: PathBuf,
+        /// What the operating system reported.
+        reason: String,
+    },
     /// Reading the pack's output failed part way through.
     #[error("lost contact with the language pack while it was working: {reason}")]
     Unreadable {
@@ -68,6 +87,16 @@ pub enum PackError {
         /// Why the document could not be read.
         reason: String,
     },
+    /// The pack's answer about a file's functions was not that document.
+    #[error(
+        "the language pack's answer about `{file}` was not a report of where a mutation may land ({reason}); update `{PACK_DISTRIBUTION}` in the target project"
+    )]
+    UnreadableSpans {
+        /// The file that was asked about.
+        file: String,
+        /// Why the document could not be read.
+        reason: String,
+    },
     /// The pack implements a different version of the contract.
     #[error(
         "the language pack speaks contract version {pack} and this tremula speaks {SCHEMA_VERSION}; update `{PACK_DISTRIBUTION}` in the target project so both sides match"
@@ -78,7 +107,7 @@ pub enum PackError {
     },
     /// The pack cannot do everything a run needs.
     #[error(
-        "the language pack cannot {}, which a run needs; update `{PACK_DISTRIBUTION}` in the target project",
+        "the language pack cannot {}, which this command needs; update `{PACK_DISTRIBUTION}` in the target project",
         missing.join(" or ")
     )]
     MissingSubcommands {
@@ -168,6 +197,20 @@ fn quote(tail: &[String]) -> String {
 /// Returns [`PackError`] when the pack cannot be run, does not describe itself,
 /// or describes itself as something the core cannot use.
 pub fn handshake(env: &PythonEnv) -> Result<Capabilities, PackError> {
+    negotiate(env, &[])
+}
+
+/// Negotiate with the pack, requiring what a generation needs as well.
+///
+/// # Errors
+///
+/// As [`handshake`], and additionally when the pack cannot say where a mutation
+/// may land in a file — which a generation has no way to find out for itself.
+pub fn handshake_for_generation(env: &PythonEnv) -> Result<Capabilities, PackError> {
+    negotiate(env, &[SPANS_SUBCOMMAND])
+}
+
+fn negotiate(env: &PythonEnv, also: &[&str]) -> Result<Capabilities, PackError> {
     let mut command = pack_command(env);
     command.arg("--capabilities").current_dir(neutral());
     let transcript = drive(env, command, None, false, &unwatched)?;
@@ -179,12 +222,12 @@ pub fn handshake(env: &PythonEnv) -> Result<Capabilities, PackError> {
         serde_json::from_str(&document).map_err(|err| PackError::UnreadableHandshake {
             reason: err.to_string(),
         })?;
-    check(&capabilities)?;
+    check(&capabilities, also)?;
     Ok(capabilities)
 }
 
 /// Everything the core requires of a pack it has just met.
-fn check(capabilities: &Capabilities) -> Result<(), PackError> {
+fn check(capabilities: &Capabilities, also: &[&str]) -> Result<(), PackError> {
     if capabilities.contract_version != SCHEMA_VERSION {
         return Err(PackError::ContractMismatch {
             pack: capabilities.contract_version.clone(),
@@ -192,6 +235,7 @@ fn check(capabilities: &Capabilities) -> Result<(), PackError> {
     }
     let missing: Vec<String> = REQUIRED_SUBCOMMANDS
         .iter()
+        .chain(also)
         .filter(|required| !capabilities.subcommands.iter().any(|had| had == *required))
         .map(|required| (*required).to_owned())
         .collect();
@@ -287,6 +331,36 @@ pub fn validate_deep(
         return Ok(());
     }
     Err(transcript.into_failure(None))
+}
+
+/// Ask the pack where a mutation may land in one file.
+///
+/// The file is a spelling and not a path the core resolves for the pack: the
+/// contract's paths are POSIX and project-relative, and the pack draws the line
+/// where the core draws it — refusing, through its own error channel, a file whose
+/// bytes no run could address by offset and a path that leads out of the project.
+///
+/// # Errors
+///
+/// Returns [`PackError`] when the pack cannot be started, refuses the file, or
+/// answers with something that is not a spans document.
+pub fn spans(env: &PythonEnv, project_root: &Path, file: &str) -> Result<SpansReport, PackError> {
+    let mut command = pack_command(env);
+    command
+        .arg(SPANS_SUBCOMMAND)
+        .args(["--file", file])
+        .args(["--project".as_ref(), project_root.as_os_str()])
+        .current_dir(project_root);
+    let transcript = drive(env, command, None, false, &unwatched)?;
+    if !transcript.succeeded() {
+        return Err(transcript.into_failure(None));
+    }
+    serde_json::from_str(&transcript.last_line().unwrap_or_default()).map_err(|err| {
+        PackError::UnreadableSpans {
+            file: file.to_owned(),
+            reason: err.to_string(),
+        }
+    })
 }
 
 /// Nobody is recording the process of a call that belongs to no run: the

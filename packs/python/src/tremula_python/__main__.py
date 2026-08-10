@@ -28,6 +28,7 @@ from tremula_python import (
     engine,
     plan_session,
     preflight,
+    refusals,
     spans,
 )
 from tremula_python.contracts import Manifest, Stage
@@ -36,6 +37,9 @@ from tremula_python.run_layout import RunLayout
 
 EXIT_FAILURE = 2
 """Every failure reports the same code; the document says which failure it was."""
+
+EVERY_MUTANT_REFUSED = "every_mutant_refused"
+"""Code for a manifest none of whose mutants this project can take."""
 
 INVALID_ARGUMENTS = "invalid_arguments"
 """Code for a command line this pack cannot act on."""
@@ -147,6 +151,18 @@ def _run(options: argparse.Namespace) -> int:
     Each step reports its own stage, so a failure says how far the run got. The
     session survives every failure after it is created, which is what lets
     `collect` finish the job later.
+
+    A mutant this project cannot take is not one of those failures. Three steps
+    can find one — the language checks, the session file, the backend's own count
+    of the jobs it made — and each of them leaves that mutant out and records why
+    instead of ending the run. The manifest copy the run directory keeps is still
+    the whole of what was asked for, so `collect` reports every mutant, and a
+    refused one comes back as a mutation that was never applied.
+
+    All three ask the same question afterwards, because any of the three can be the
+    one that empties the batch. Leaving a mutant out exists to save the others, and
+    the last step has no more claim to skip that question than the first: the
+    session it leaves behind holds nothing but jobs it has marked skipped.
     """
     manifest_path: Path = options.manifest
     project_root: Path = options.project
@@ -161,7 +177,8 @@ def _run(options: argparse.Namespace) -> int:
     with failures_as(Stage.VALIDATE):
         manifest_copy = manifest_path.read_text(encoding="utf-8")
         manifest = _manifest_from(manifest_copy)
-        preflight.validate_language(manifest, project_root)
+        refused = preflight.refusals_in(manifest, project_root)
+        _refuse_a_batch_with_nothing_left(Stage.VALIDATE, manifest, refused)
     with failures_as(Stage.BASELINE):
         reference = baseline.run_baseline(
             project_root,
@@ -170,16 +187,57 @@ def _run(options: argparse.Namespace) -> int:
             layout,
         )
     with failures_as(Stage.PLAN):
+        refused |= plan_session.unserializable_mutants(
+            _without(manifest, refused), project_root
+        )
+        _refuse_a_batch_with_nothing_left(Stage.PLAN, manifest, refused)
+        runnable = _without(manifest, refused)
         timeout = plan_session.effective_timeout(reference, explicit)
-        plan = plan_session.build_plan(manifest, project_root, layout, tests, timeout)
+        plan = plan_session.build_plan(runnable, project_root, layout, tests, timeout)
         plan.write(layout, manifest_copy)
         engine.init_session(layout, project_root)
-        engine.filter_jobs(layout.session, manifest)
+        refused |= engine.filter_jobs(layout.session, runnable).refused
+        # Recorded before the batch is judged empty, so that a run directory a
+        # `collect` may be pointed at later says what was refused either way.
+        refusals.write(layout, refused)
+        _refuse_a_batch_with_nothing_left(Stage.PLAN, manifest, refused)
     with failures_as(Stage.EXECUTE):
         engine.execute(layout, project_root)
     with failures_as(Stage.COLLECT):
         collect.collect(layout.directory)
     return 0
+
+
+def _without(manifest: Manifest, refused: refusals.Refused) -> Manifest:
+    """The manifest minus the mutants that have been refused."""
+    return manifest.model_copy(
+        update={"mutants": [m for m in manifest.mutants if m.id not in refused]}
+    )
+
+
+def _refuse_a_batch_with_nothing_left(
+    stage: Stage, manifest: Manifest, refused: refusals.Refused
+) -> None:
+    """Stop when every mutant has been refused.
+
+    Leaving a mutant out exists to save the rest of the batch, and here there is no
+    rest to save: no session would be built, so no results document could be
+    written, and a run reporting itself as finished would be concealing that
+    nothing had happened. Preserving a batch is the purpose; pretending there was
+    one is not.
+
+    Raises:
+        PackFailure: Every mutant in the manifest was refused.
+    """
+    if not manifest.mutants or len(refused) < len(manifest.mutants):
+        return
+    raise PackFailure(
+        stage,
+        EVERY_MUTANT_REFUSED,
+        f"none of the {len(manifest.mutants)} mutants in this manifest can be applied to this "
+        "project, so there is nothing to run: "
+        + "; ".join(refusal.message for refusal in refused.values()),
+    )
 
 
 def _spans(options: argparse.Namespace) -> int:

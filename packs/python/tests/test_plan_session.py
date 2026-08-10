@@ -245,6 +245,25 @@ def test_text_that_cannot_survive_the_session_file_is_refused(
     assert "first" in raised.value.message
 
 
+def test_only_the_mutant_whose_text_cannot_travel_is_refused(tmp_path: Path) -> None:
+    # The same defect, asked one mutant at a time. The whole-document check can
+    # only say that *some* value did not survive, and a run that leaves one mutant
+    # out has to name which — so the screening is per mutant and the document
+    # check stays behind it as the invariant.
+    manifest = _manifest(
+        _mutant("first"),
+        _mutant("a docstring", replacement='"""a docstring"""'),
+        _mutant("third", replacement="start > end"),
+    )
+    project = _project(tmp_path, TARGET)
+
+    refused = plan_session.unserializable_mutants(manifest, project)
+
+    assert list(refused) == ["a docstring"]
+    assert refused["a docstring"].code == "unserializable_mutant"
+    assert "`replacement`" in refused["a docstring"].message
+
+
 def test_text_that_survives_the_session_file_is_accepted(tmp_path: Path) -> None:
     # The neighbouring shapes, which do round-trip: quotes anywhere but the start,
     # and a docstring inside a larger replacement.

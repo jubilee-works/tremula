@@ -16,9 +16,9 @@ in a separate program means a new language is a new pack, not a new fork.
 
 | | Core (`crates/tremula`) | Pack (`packs/python`) |
 | --- | --- | --- |
-| Reads | manifest, `results`, `baseline` | manifest |
-| Writes | `report`, the console report | `results`, `baseline`, execution logs |
-| Owns | validation against bytes on disk, the project lock, run directories, snapshots, verdicts, the exit code | the environment check, language-level validation, the reference run, applying mutants, running the suite |
+| Reads | manifest, `spans`, `results`, `baseline` | manifest, source files |
+| Writes | manifest, `report`, the console report | `results`, `baseline`, execution logs |
+| Owns | validation against bytes on disk, asking a model, turning an answer into spans, the project lock, run directories, snapshots, verdicts, the exit code | the environment check, where a mutation may land, language-level validation, the reference run, applying mutants, running the suite |
 | Never | starts a test suite, parses source, names a backend | decides a verdict, decides an exit code beyond "worked" or "failed" |
 
 The pack is invoked as `<python> -I -m tremula_python <subcommand>`. Running it as
@@ -32,8 +32,9 @@ because the pack starts subprocesses with working directories of their own.
 
 A manifest has to be written by something. That something is a `MutantGenerator`:
 one function in, one set of proposed mutations out, with the model that answered
-and what the call cost. It is a library seam — no subcommand calls it yet, and
-the order of a run below begins with a manifest that already exists.
+and what the call cost. `tremula generate` is what calls it, and **The order of a
+generation** below is what it does; the order of a run after that begins with a
+manifest that already exists, whether this wrote it or a person did.
 
 The seam is narrow on purpose. A generator is handed the text of a function and
 the tests that cover it, and answers with `file`, `original`, `replacement` and
@@ -84,6 +85,53 @@ taken back out of anything the provider says before that reaches a message.
 Which model to ask is the caller's to name, exactly, because the answer's own
 report of it is what a mutant records as provenance.
 
+## The order of a generation
+
+1. **Refuse to write over a manifest that is already there.** Before anything is
+   spent, because the answer to "where does this go" cannot change later.
+2. **Read the file and hold it to every rule a target file keeps.** The same rules
+   a manifest's target is held to, asked of a path with no manifest behind it: a
+   file this refuses would produce a manifest the neutral validation throws out,
+   after a model had been paid for it.
+3. **Find the project's Python and negotiate**, requiring `spans` on top of what a
+   run requires. A generation has no way to work out where a mutation may land
+   without asking; a pack that has never heard of the call still runs a manifest
+   somebody else generated, which is why the requirement is here and not there.
+4. **Ask the pack where a mutation may land**, and check its report against the
+   bytes that were read. A report about another version of the file would place
+   every span somewhere it is not.
+5. **Pick the named functions out of that report.** A name that is not there is
+   refused with the ones that are; a name the file spells twice asks for the span
+   of the one that is meant, because a qualified name is for a person to read and
+   is never a key.
+6. **Per function: ask, check, ask once more.** The function's own source is cut
+   from the file at the span the pack reported; the test files named on the command
+   line are read and shown alongside it, and the stretches that carry no behaviour
+   are named as places not to aim at. Every proposal is turned into a mutant
+   against the file's own bytes and then put to the pack one mutant at a time —
+   one at a time because the pack's validation stops at its first defect, and a
+   defect that is not reported is a correction that cannot be asked for. What
+   anything refused is asked again, once, for the failed slots alone.
+7. **Read the file's hash again, validate the whole manifest, write it.** The
+   second reading is what catches a file that moved under the generation: every
+   offset in a manifest is a claim about bytes that were there. The whole-manifest
+   validation is the invariant a per-mutant answer cannot establish — no repeated
+   identifier, every span still where it was said to be.
+
+Nothing in that list claims the project's lock, and that is a decision. A
+generation reads and never patches a source; what a concurrent run could do is
+change a file underneath it, and both ways that could go wrong end safely — step 7
+catches it and nothing is written, or a manifest that got past would be refused by
+the run that tried to use it, since a mutant's identifier is derived from the hash
+of the file it was generated against. Taking the lock would instead make
+generating and running exclude each other for no gain.
+
+A refused proposal is the ordinary course of asking a model for mutants and does
+not fail the command. A manifest with nothing in it does, and so does a function
+whose model or whose check gave out — with the manifest still written, because what
+the other functions produced is real. The summary names which function stopped and
+why, since an exit code cannot.
+
 ## The order of a run
 
 The sequence below is mostly forced rather than chosen; each step is either the
@@ -129,7 +177,17 @@ reason the next one is safe or the reason it means anything.
    reference run, then applies every mutant and collects the results. Its process
    is named in the lock while it lasts, and no way out of this step leaves it
    running: a pack that outlived the run would go on editing the files the report
-   describes.
+   describes. A mutant the pack cannot apply is left out and reported as
+   `not_applied` with the reason rather than ending the run — which is why the
+   exit code below counts any `not_applied` as untrustworthy: the batch is saved,
+   and the fact that something was left out is not hidden. Which mutants were left
+   out, and why, is `refusals.json` in the run directory.
+   One of those refusals is a rule about mutations rather than about this project,
+   and it applies to every manifest: a replacement that leaves the file with the
+   syntax tree it already had is refused, whoever wrote it — a person editing a
+   manifest by hand as much as a generator — because no test could tell the two
+   files apart, and reporting such a mutant as survived would blame the suite for a
+   difference that is not there. It arrives as `not_applied`, and so as exit 2.
 9. **Read back what it wrote, and check that it belongs.** Both documents have to
    carry this contract version, this run's identifier, and this pack's name,
    version and contract version. A pack that reports success without leaving a
@@ -153,6 +211,7 @@ reason the next one is safe or the reason it means anything.
         ├── session.sqlite     # the backend's own state
         ├── baseline.json      # the reference run
         ├── results.json       # per-mutant signals, in neutral terms
+        ├── refusals.json      # which mutants the run left out, and why
         ├── report.json        # verdicts, score, exit code — written by the core
         ├── snapshot/          # the target files as they were
         ├── pycache/           # bytecode, kept out of the project's own
@@ -165,8 +224,9 @@ suffixed name of its own, up to `-9`.
 
 Only some of these exist for a run that failed early. A run that stopped before
 its manifest was validated has a report and nothing else; one that stopped in the
-pack's reference run has no `manifest.json` copy, because that copy is written
-when the pack plans the session. That is normal, not damage.
+pack's reference run has neither the `manifest.json` copy nor `refusals.json`,
+because both are written when the pack plans the session. That is normal, not
+damage.
 
 ## Exit codes
 

@@ -31,11 +31,14 @@ schemars = "1"
 # later one redefines what `default-tls` selects, which is a decision about what
 # this project ships rather than a version bump.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "default-tls"] }
+# A directory of its own for each one-mutant manifest handed to the language pack.
+# The pack is a subprocess that reads a path, so the document has to exist
+# somewhere, and somewhere is not the project being generated for.
+tempfile = "3"
 
 [dev-dependencies]
 assert_cmd = "2"
 insta = "1"
-tempfile = "3"
 # `parsing` is for the tests that read a document's timestamps back.
 time = { version = "0.3", features = ["macros", "parsing"] }
 
@@ -47,6 +50,10 @@ e2e = []
 
 [[test]]
 name = "e2e"
+required-features = ["e2e"]
+
+[[test]]
+name = "e2e_generate"
 required-features = ["e2e"]
 
 [lints]

@@ -21,13 +21,24 @@ of it still works with this pack: the handshake asks for the subcommands the cor
 needs, not for the ones the pack has.
 """
 
-VALIDATE_CHECKS = ("parses", "single_statement", "round_trips", "span_matches_node")
+VALIDATE_CHECKS = (
+    "compiles_in_file",
+    "single_statement",
+    "round_trips",
+    "span_matches_node",
+    "ast_equal",
+)
 """The language-level checks `validate` performs, in the order it applies them.
 
-The first three come from the replacement itself: it is syntactically valid
-Python, it is a single top-level statement, and it survives being parsed and
-injected without losing text. The fourth is about the target: the span lines up
-with a node the backend can match.
+`compiles_in_file` is the target file with the replacement spliced into the span,
+compiled whole. It replaced a check that read the replacement on its own, which
+refused a `return` statement for not being a module — 34 such refusals in a
+measured 144, every one of which compiled where it belonged. The next two come
+from the replacement itself: it is a single top-level statement, and it survives
+being parsed and injected without losing text. The fourth is about the target:
+the span lines up with a node the backend can match. The last is about the pair:
+`ast_equal` refuses a mutation whose file has the syntax tree the original had,
+which is a mutant no test suite could be blamed for missing.
 """
 
 

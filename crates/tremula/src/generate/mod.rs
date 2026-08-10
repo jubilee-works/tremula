@@ -44,8 +44,13 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub mod choose;
+pub mod command;
+pub mod enrich;
+pub mod failures;
 pub mod openai;
 pub mod prompt;
+pub mod round;
 
 /// A source of mutants for one function at a time.
 pub trait MutantGenerator {
@@ -73,6 +78,17 @@ pub struct GenerationRequest {
     /// function alone, which was measured to be the weaker question.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tests: Vec<CoveringTest>,
+    /// Stretches of the function's own source a mutation must not aim at, quoted
+    /// verbatim.
+    ///
+    /// A docstring, the type of an annotated assignment: code that carries no
+    /// behaviour a test could see, so a mutation there is one no suite could be
+    /// blamed for missing. Naming them in the request is what stops a model
+    /// spending a proposal on one, and it is cheaper than the alternative — the
+    /// caller refuses such a mutation anyway, and a refusal costs a correction.
+    /// Both happen: this is what a model is told, and the refusal stands behind it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded: Vec<String>,
     /// How many mutants to ask for.
     ///
     /// Three to five is the recommended range and the range that was measured.

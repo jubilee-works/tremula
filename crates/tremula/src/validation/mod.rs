@@ -13,7 +13,7 @@ use std::{
 use sha2::{Digest, Sha256};
 use tremula_contracts::manifest::{Manifest, Mutant, Span};
 
-pub use defects::{ValidationError, ValidationWarning};
+pub use defects::{TargetFileError, ValidationError, ValidationWarning};
 
 /// How large a replacement can get before we warn about serialization bulk.
 const LARGE_REPLACEMENT_BYTES: usize = 10 * 1024;
@@ -103,9 +103,7 @@ pub fn validate_manifest(
             targets: Vec::new(),
         });
     }
-    let root = canonical_root(project_root)?;
     for mutant in &manifest.mutants {
-        let relative = project_relative_path(mutant)?;
         if !seen.insert(mutant.id.as_str()) {
             return Err(ValidationError::DuplicateId {
                 id: mutant.id.clone(),
@@ -114,14 +112,12 @@ pub fn validate_manifest(
         let bytes = match read.entry(mutant.file.as_str()) {
             Entry::Occupied(already) => already.into_mut(),
             Entry::Vacant(first) => {
-                let path = project_root.join(relative);
-                check_containment(mutant, &root, &path)?;
-                let bytes = read_target(mutant, &path)?;
+                let bytes = read_project_file(project_root, &mutant.file)
+                    .map_err(|problem| problem.about(mutant))?;
                 first_mentioned.push(mutant.file.as_str());
                 first.insert(bytes)
             }
         };
-        check_encoding(mutant, bytes)?;
         check_hash(mutant, bytes)?;
         check_replacement_line_endings(mutant)?;
         check_span(mutant, bytes)?;
@@ -146,6 +142,38 @@ pub fn validate_manifest(
     Ok(Verified { warnings, targets })
 }
 
+/// Read one file of the project and hold it to every rule a target file keeps.
+///
+/// The same rules [`validate_manifest`] applies to a mutant's target, asked of a
+/// path with no mutant behind it — which is what a caller that has no manifest yet
+/// needs. It is the same code rather than the same intent: a caller that read a
+/// file this refuses would go on to build a manifest the neutral validation throws
+/// out, and with a generator involved it would pay a model first.
+///
+/// # Errors
+///
+/// Returns [`TargetFileError`] for a path that is not the project's own, a file
+/// that is not there or cannot be read, or bytes tremula cannot address by offset:
+/// anything but plain UTF-8 with line feeds.
+pub fn read_target_file(project_root: &Path, file: &str) -> Result<Vec<u8>, TargetFileError> {
+    read_project_file(project_root, file).map_err(|problem| problem.on_its_own(file))
+}
+
+/// Read one file of the project, or say what is wrong with it in the terms both
+/// callers translate from.
+fn read_project_file(project_root: &Path, file: &str) -> Result<Vec<u8>, FileProblem> {
+    let relative = project_relative_path(file)?;
+    let root = fs::canonicalize(project_root).map_err(|err| FileProblem::RootUnresolvable {
+        root: project_root.to_path_buf(),
+        reason: err.to_string(),
+    })?;
+    let path = project_root.join(relative);
+    check_containment(&root, &path)?;
+    let bytes = fs::read(&path).map_err(|err| which_read_failure(&err))?;
+    check_encoding(&bytes)?;
+    Ok(bytes)
+}
+
 /// Accept only paths built entirely from ordinary names. This is stricter than
 /// rejecting paths that escape after normalization: `./x.py` and `a/./b.py` are
 /// refused too, because the identifier derivation hashes the `file` string
@@ -156,17 +184,13 @@ pub fn validate_manifest(
 /// `..\escape.py` and `C:\pkg\mod.py` are each a single ordinary name, and
 /// `a//b.py` quietly collapses to `a/b.py` — all three would slip past a
 /// component walk while denoting something other than what they say.
-fn project_relative_path(mutant: &Mutant) -> Result<&Path, ValidationError> {
-    let path = Path::new(&mutant.file);
-    let spelled_as_posix = is_plain_posix_spelling(&mutant.file);
+fn project_relative_path(file: &str) -> Result<&Path, FileProblem> {
+    let path = Path::new(file);
     let all_plain_names = path
         .components()
         .all(|component| matches!(component, Component::Normal(_)));
-    if !spelled_as_posix || !all_plain_names {
-        return Err(ValidationError::PathEscapesProject {
-            mutant_id: mutant.id.clone(),
-            file: mutant.file.clone(),
-        });
+    if !is_plain_posix_spelling(file) || !all_plain_names {
+        return Err(FileProblem::NotProjectRelative);
     }
     Ok(path)
 }
@@ -181,15 +205,6 @@ fn is_plain_posix_spelling(file: &str) -> bool {
         && !file.contains("//")
 }
 
-/// The project root as the filesystem sees it, which is what every target has
-/// to resolve inside of.
-fn canonical_root(project_root: &Path) -> Result<PathBuf, ValidationError> {
-    fs::canonicalize(project_root).map_err(|err| ValidationError::ProjectRootUnresolvable {
-        root: project_root.to_path_buf(),
-        reason: err.to_string(),
-    })
-}
-
 /// Confirm the target really is a file of the project's own.
 ///
 /// A relative path with no `..` in it still reaches out of the project when the
@@ -198,73 +213,144 @@ fn canonical_root(project_root: &Path) -> Result<PathBuf, ValidationError> {
 /// does not own — in place, and with a snapshot that does not cover it — so the
 /// spelling is checked against where the path actually leads, not only against
 /// how it reads.
-fn check_containment(mutant: &Mutant, root: &Path, path: &Path) -> Result<(), ValidationError> {
-    let link = fs::symlink_metadata(path).map_err(|err| unreadable_target(mutant, &err))?;
+fn check_containment(root: &Path, path: &Path) -> Result<(), FileProblem> {
+    let link = fs::symlink_metadata(path).map_err(|err| which_read_failure(&err))?;
     if link.file_type().is_symlink() {
-        return Err(ValidationError::SymlinkTarget {
-            mutant_id: mutant.id.clone(),
-            file: mutant.file.clone(),
-        });
+        return Err(FileProblem::Symlink);
     }
-    let resolved = fs::canonicalize(path).map_err(|err| unreadable_target(mutant, &err))?;
+    let resolved = fs::canonicalize(path).map_err(|err| which_read_failure(&err))?;
     if !resolved.starts_with(root) {
-        return Err(ValidationError::TargetOutsideProject {
-            mutant_id: mutant.id.clone(),
-            file: mutant.file.clone(),
-        });
+        return Err(FileProblem::OutsideProject);
     }
     Ok(())
 }
 
-/// Read the target, keeping "it is not there" and "it is there but I cannot
-/// read it" apart. Reporting the second as the first sends the reader looking
-/// for a missing file that exists.
-fn read_target(mutant: &Mutant, path: &Path) -> Result<Vec<u8>, ValidationError> {
-    fs::read(path).map_err(|err| unreadable_target(mutant, &err))
-}
-
-/// Which of the two "cannot use this file" failures an I/O error is.
-fn unreadable_target(mutant: &Mutant, err: &io::Error) -> ValidationError {
+/// Which of the two "cannot use this file" failures an I/O error is. Reporting
+/// the second as the first sends the reader looking for a missing file that
+/// exists.
+fn which_read_failure(err: &io::Error) -> FileProblem {
     if err.kind() == io::ErrorKind::NotFound {
-        return ValidationError::FileMissing {
-            mutant_id: mutant.id.clone(),
-            file: mutant.file.clone(),
-        };
+        return FileProblem::Missing;
     }
-    ValidationError::FileUnreadable {
-        mutant_id: mutant.id.clone(),
-        file: mutant.file.clone(),
-        reason: err.to_string(),
-    }
+    FileProblem::Unreadable(err.to_string())
 }
 
 /// Reject anything that is not plain UTF-8 with LF endings. A byte-order mark
 /// and a raw non-UTF-8 byte are both fatal here rather than later, where a
 /// language pack would meet them as an unexplained decoding failure.
-fn check_encoding(mutant: &Mutant, bytes: &[u8]) -> Result<(), ValidationError> {
-    let unsupported = || ValidationError::UnsupportedEncoding {
-        mutant_id: mutant.id.clone(),
-        file: mutant.file.clone(),
-    };
+fn check_encoding(bytes: &[u8]) -> Result<(), FileProblem> {
     if bytes.starts_with(&UTF8_BOM) {
-        return Err(unsupported());
+        return Err(FileProblem::UnsupportedEncoding);
     }
     let Ok(text) = std::str::from_utf8(bytes) else {
-        return Err(ValidationError::NotUtf8 {
-            mutant_id: mutant.id.clone(),
-            file: mutant.file.clone(),
-        });
+        return Err(FileProblem::NotUtf8);
     };
     if declares_other_encoding(text) {
-        return Err(unsupported());
+        return Err(FileProblem::UnsupportedEncoding);
     }
     if bytes.contains(&b'\r') {
-        return Err(ValidationError::UnsupportedLineEndings {
-            mutant_id: mutant.id.clone(),
-            file: mutant.file.clone(),
-        });
+        return Err(FileProblem::UnsupportedLineEndings);
     }
     Ok(())
+}
+
+/// What can be wrong with a file before any mutant is involved.
+///
+/// The one vocabulary both readings of these rules translate out of: a manifest's,
+/// which names the mutant that carries the path, and a caller's that has only the
+/// path. Keeping the checks in one place is what stops the two from drifting into
+/// different opinions of the same file.
+enum FileProblem {
+    /// The path is not a plain project-relative POSIX path.
+    NotProjectRelative,
+    /// The project root does not resolve. The root travels with the reason because
+    /// it is not a fact about the file being read: it is the value the caller
+    /// passed, and the only thing they can correct.
+    RootUnresolvable {
+        /// The root as it was given.
+        root: PathBuf,
+        /// What the operating system reported.
+        reason: String,
+    },
+    /// The path leads to a link rather than a file of the project's own.
+    Symlink,
+    /// The path resolves to somewhere outside the project.
+    OutsideProject,
+    /// There is no such file.
+    Missing,
+    /// There is, and it could not be read.
+    Unreadable(String),
+    /// Its bytes are not UTF-8.
+    NotUtf8,
+    /// It carries a byte-order mark or announces another encoding.
+    UnsupportedEncoding,
+    /// It uses carriage returns.
+    UnsupportedLineEndings,
+}
+
+impl FileProblem {
+    /// This problem as a defect of the mutant whose target the file is.
+    fn about(self, mutant: &Mutant) -> ValidationError {
+        let id = mutant.id.clone();
+        let file = mutant.file.clone();
+        match self {
+            Self::NotProjectRelative => ValidationError::PathEscapesProject {
+                mutant_id: id,
+                file,
+            },
+            Self::RootUnresolvable { root, reason } => {
+                ValidationError::ProjectRootUnresolvable { root, reason }
+            }
+            Self::Symlink => ValidationError::SymlinkTarget {
+                mutant_id: id,
+                file,
+            },
+            Self::OutsideProject => ValidationError::TargetOutsideProject {
+                mutant_id: id,
+                file,
+            },
+            Self::Missing => ValidationError::FileMissing {
+                mutant_id: id,
+                file,
+            },
+            Self::Unreadable(reason) => ValidationError::FileUnreadable {
+                mutant_id: id,
+                file,
+                reason,
+            },
+            Self::NotUtf8 => ValidationError::NotUtf8 {
+                mutant_id: id,
+                file,
+            },
+            Self::UnsupportedEncoding => ValidationError::UnsupportedEncoding {
+                mutant_id: id,
+                file,
+            },
+            Self::UnsupportedLineEndings => ValidationError::UnsupportedLineEndings {
+                mutant_id: id,
+                file,
+            },
+        }
+    }
+
+    /// This problem as a defect of the file itself, with no mutant to name.
+    fn on_its_own(self, file: &str) -> TargetFileError {
+        let file = file.to_owned();
+        match self {
+            Self::NotProjectRelative => TargetFileError::NotProjectRelative { file },
+            // The root is left out of this one, and only this one: its message is
+            // read by a caller who named the root a line ago and has no mutant to
+            // be told about, so echoing the path back says nothing new.
+            Self::RootUnresolvable { reason, .. } => TargetFileError::RootUnresolvable { reason },
+            Self::Symlink => TargetFileError::Symlink { file },
+            Self::OutsideProject => TargetFileError::OutsideProject { file },
+            Self::Missing => TargetFileError::Missing { file },
+            Self::Unreadable(reason) => TargetFileError::Unreadable { file, reason },
+            Self::NotUtf8 => TargetFileError::NotUtf8 { file },
+            Self::UnsupportedEncoding => TargetFileError::UnsupportedEncoding { file },
+            Self::UnsupportedLineEndings => TargetFileError::UnsupportedLineEndings { file },
+        }
+    }
 }
 
 /// Whether one of the leading comment lines declares an encoding that is not

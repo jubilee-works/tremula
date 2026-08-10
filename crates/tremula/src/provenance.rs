@@ -10,7 +10,15 @@ use std::{path::Path, process::Command};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tremula_contracts::report::RunMeta;
 
-use crate::{decision::DECISION_RULES_VERSION, run_dir::TREMULA_DIR};
+use crate::{
+    decision::DECISION_RULES_VERSION, generate::prompt::PROMPT_VERSION, run_dir::TREMULA_DIR,
+};
+
+/// What a generated mutant names as its producer.
+///
+/// The pair a pack reports about itself, for the thing on this side of the
+/// boundary that produces mutants rather than runs them.
+pub const GENERATOR_NAME: &str = "tremula-generate";
 
 /// What the run found when it started, including when that was.
 #[derive(Debug)]
@@ -89,6 +97,30 @@ pub fn run_meta(run_id: &str, project: &str, observed: &Observed) -> RunMeta {
         started_at: timestamp(observed.started),
         finished_at: timestamp(OffsetDateTime::now_utc()),
     }
+}
+
+/// What produced one mutant, as its `provenance` records it.
+///
+/// The keys are the convention `contracts/pack-protocol.md` publishes, so that two
+/// producers recording the same fact record it under the same name. Provenance is
+/// excluded from a mutant's identifier, so writing more of it here could never
+/// change what a mutation is.
+///
+/// `model` is the model's own account of itself rather than what was asked for: a
+/// family name resolves to whichever version is current, which is the one thing a
+/// reproduction cannot rely on.
+#[must_use]
+pub fn generator(model: &str, generated_at: &str) -> serde_json::Map<String, serde_json::Value> {
+    let generator = serde_json::json!({
+        "name": GENERATOR_NAME,
+        "version": env!("CARGO_PKG_VERSION"),
+        "model": model,
+        "prompt_version": PROMPT_VERSION,
+        "generated_at": generated_at,
+    });
+    let mut provenance = serde_json::Map::new();
+    provenance.insert("generator".to_owned(), generator);
+    provenance
 }
 
 /// A moment, as every contract document spells one.

@@ -20,7 +20,8 @@ text with no idea which file it is looking at, so two identical files both match
 Marking everything else as skipped — the same way Cosmic Ray's own filter tools do
 — leaves exactly one job per mutant, and that is what makes a *missing* job mean
 something: the language checks already established that every span matches a node,
-so a mutant with no job is the adapter's fault and stops the run.
+so a mutant with no job is the adapter's fault. It is named as such and left out,
+rather than ending a run whose other mutants are perfectly good.
 """
 
 import shlex
@@ -28,6 +29,7 @@ import subprocess
 import sys
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -44,10 +46,14 @@ from cosmic_ray.work_item import (  # pyright: ignore[reportMissingTypeStubs]
 from tremula_python.contracts import Manifest, Stage
 from tremula_python.cr_operator import FULL_OPERATOR_NAME
 from tremula_python.errors import PackFailure
+from tremula_python.refusals import Refusal, Refused
 from tremula_python.run_layout import RunLayout, write_atomically
 
 MUTANT_ID_ARGUMENT = "mutant_id"
 """The operator argument that carries the manifest identifier through the work-db."""
+
+MUTANT_JOB_MISMATCH = "mutant_job_mismatch"
+"""Code for a mutant the backend made the wrong number of jobs for."""
 
 
 class Session(Protocol):
@@ -115,14 +121,29 @@ def execute(layout: RunLayout, project_root: Path) -> None:
     )
 
 
-def filter_jobs(session_path: Path, manifest: Manifest) -> dict[str, str]:
-    """Leave one pending job per mutant and mark the rest as skipped.
+@dataclass(frozen=True)
+class Filtered:
+    """What the filter left behind: one job each, and the mutants it could not."""
 
-    Returns:
-        The job left pending for each mutant, by mutant identifier.
+    jobs: dict[str, str]
+    """The job left pending for each mutant that has exactly one, by identifier."""
 
-    Raises:
-        PackFailure: Some mutant does not have exactly one job of its own.
+    refused: Refused
+    """Why each of the others was left out instead."""
+
+
+def filter_jobs(session_path: Path, manifest: Manifest) -> Filtered:
+    """Leave one pending job per mutant, mark everything else skipped, and say what was left out.
+
+    A mutant with no job of its own means the adapter lost it — the span was
+    checked against the parser before the session was built — and a mutant with
+    more than one means two nodes answer to the same description, so neither of
+    them is on its own the mutation the manifest asked for. Both are refused, and
+    the second has every one of its jobs marked skipped: picking one of two
+    indistinguishable matches would report a mutation nobody described.
+
+    Refusing rather than raising is what keeps one such mutant from costing the
+    rest of the batch its verdicts.
     """
     kept: dict[str, list[str]] = {mutant.id: [] for mutant in manifest.mutants}
     wanted = {mutant.id: mutant.file for mutant in manifest.mutants}
@@ -133,7 +154,37 @@ def filter_jobs(session_path: Path, manifest: Manifest) -> dict[str, str]:
                 session.set_result(item.job_id, WorkResult(worker_outcome=WorkerOutcome.SKIPPED))
                 continue
             kept[mutant_id].append(item.job_id)
-    return _one_each(kept)
+        refused = {
+            mutant_id: Refusal(MUTANT_JOB_MISMATCH, _why_the_count_is_wrong(mutant_id, jobs))
+            for mutant_id, jobs in sorted(kept.items())
+            if len(jobs) != 1
+        }
+        for mutant_id in refused:
+            for job_id in kept[mutant_id]:
+                session.set_result(job_id, WorkResult(worker_outcome=WorkerOutcome.SKIPPED))
+    return Filtered(
+        jobs={
+            mutant_id: jobs[0]
+            for mutant_id, jobs in kept.items()
+            if mutant_id not in refused
+        },
+        refused=refused,
+    )
+
+
+def _why_the_count_is_wrong(mutant_id: str, jobs: list[str]) -> str:
+    """Why a mutant the backend counted wrongly is left out rather than run."""
+    if not jobs:
+        return (
+            f"mutant {mutant_id}: the backend produced no job for it, though its span was "
+            "checked against the parser before the session was built; this is a defect in "
+            "the adapter rather than in the manifest"
+        )
+    return (
+        f"mutant {mutant_id}: the backend produced {len(jobs)} jobs for this one mutant, so no "
+        "single one of them is the mutation the manifest describes; every one of them was "
+        "left unrun rather than one of them chosen"
+    )
 
 
 def _mutant_of(item: WorkItem, wanted: dict[str, str]) -> str | None:
@@ -154,27 +205,6 @@ def _mutant_of(item: WorkItem, wanted: dict[str, str]) -> str | None:
     if mutation.module_path.as_posix() != wanted[identifier]:
         return None
     return identifier
-
-
-def _one_each(kept: dict[str, list[str]]) -> dict[str, str]:
-    """Confirm every mutant kept exactly one job.
-
-    Raises:
-        PackFailure: One of them kept none, or more than one.
-    """
-    wrong = {mutant_id: jobs for mutant_id, jobs in kept.items() if len(jobs) != 1}
-    if wrong:
-        listed = ", ".join(
-            f"{mutant_id} ({len(jobs)} jobs)" for mutant_id, jobs in sorted(wrong.items())
-        )
-        raise PackFailure(
-            Stage.PLAN,
-            "mutant_job_mismatch",
-            f"the backend did not produce exactly one job per mutant: {listed}; every span "
-            "was checked against the parser before the session was built, so this is a "
-            "defect in the adapter rather than in the manifest",
-        )
-    return {mutant_id: jobs[0] for mutant_id, jobs in kept.items()}
 
 
 def _run(

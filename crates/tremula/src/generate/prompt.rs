@@ -113,9 +113,9 @@ These are refused outright, because none of them can change an observable result
 
 /// The system prompt this version sends.
 ///
-/// What this version says to a model differs from the measurement in four places
+/// What this version says to a model differs from the measurement in five places
 /// and no others, because the measurement stands only for the text it was taken
-/// against. Three of the four are lines of the text below, against
+/// against. Three of the five are lines of the text below, against
 /// [`archive::SYSTEM`]:
 ///
 /// 1. **No span.** The two rules that required or described the `span` field are
@@ -135,7 +135,7 @@ These are refused outright, because none of them can change an observable result
 ///    is what a caller searching for it needs it to be.
 ///
 /// Every other sentence of this prompt, and the position of every blank line, is
-/// the archive's. The fourth change is not in this text at all:
+/// the archive's. The remaining two changes are not in this text at all:
 ///
 /// 4. **The correction turn says "the contract", not "the schema".** One word, in
 ///    the message that goes back with a defect list — see [`correction`], which
@@ -143,6 +143,17 @@ These are refused outright, because none of them can change an observable result
 ///    satisfied. It is counted here because it is a change to what a model is
 ///    told, and the whole of what a model is told is what the measurement was
 ///    taken against.
+/// 5. **The user prompt can name stretches not to aim at.** A block listing the
+///    code a mutation must leave alone, present only when
+///    [`GenerationRequest::excluded`] holds something — so a request without one
+///    sends the measured prompt exactly. It is there because the caller refuses
+///    such a mutation in any case, and a refusal costs one of the corrections a
+///    round owns; saying so up front is the cheaper half of the same rule. What it
+///    does *not* attempt is talking a model out of proposing mutations that cannot
+///    change what a function does — that was measured, it did not work, and
+///    [`ANTI_EQUIVALENCE`] is the record of it.
+///
+/// [`ANTI_EQUIVALENCE`]: archive::ANTI_EQUIVALENCE
 pub const SYSTEM: &str = "You plant realistic bugs in Python code. Given one function, you produce
 mutations that a competent developer could plausibly have written by mistake and
 that an existing test suite might not catch.
@@ -202,6 +213,19 @@ pub fn assemble(request: &GenerationRequest) -> Prompt {
             parts.push(format!("file: {}", test.file));
             parts.push("```python".to_owned());
             parts.push(test.source.trim_end_matches('\n').to_owned());
+            parts.push("```".to_owned());
+        }
+    }
+    if !request.excluded.is_empty() {
+        parts.push(String::new());
+        parts.push(
+            "Leave these alone. Nothing evaluates them, so a mutation of one changes nothing a test could see."
+                .to_owned(),
+        );
+        for left_alone in &request.excluded {
+            parts.push(String::new());
+            parts.push("```python".to_owned());
+            parts.push(left_alone.trim_end_matches('\n').to_owned());
             parts.push("```".to_owned());
         }
     }

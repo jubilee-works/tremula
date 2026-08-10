@@ -38,7 +38,15 @@ disk are the core's. Exit 0 when all mutants pass, 2 otherwise.
 The checks a pack reports through `validate_checks`, as the Python pack
 implements them:
 
-- `parses` — the replacement is syntactically valid code.
+- `compiles_in_file` — the target file, with the replacement put in the span's
+  place, still compiles. A replacement is judged by the file it makes and not by
+  itself, because reading it alone answers a different question: `return errors`
+  is no module and compiles as nothing on its own, while being exactly right
+  inside a function. The file that is checked is the file the run produces —
+  the pack splices it the same way the backend's operator does, newline shaping
+  included — so a mutant this check accepts is one the backend can really apply.
+  It is a compile rather than a parse: a parse accepts a function with two
+  parameters of the same name, and the interpreter does not.
 - `single_statement` — it is one top-level statement, since it has to stand in
   for one node.
 - `round_trips` — reinjecting the parsed replacement loses none of its text.
@@ -50,13 +58,22 @@ implements them:
   leading comments, blank lines — which would silently vanish on injection.
 - `span_matches_node` — the manifest's byte span lines up with a node the
   backend can match, so a mutant that produces no work item means a real adapter
-  bug rather than a span that never had a chance.
+  bug rather than a span that never had a chance. A compound statement's node
+  ends after the newline that closes it, so a span aimed at one has to take that
+  newline in; a span over a bare `if` or `while` header lines up with nothing,
+  whatever else is right about it.
+- `ast_equal` — the mutated file's syntax tree differs from the original's. A
+  replacement that only regroups an expression makes a different file and the
+  same program, and reporting such a mutant as survived would blame a test suite
+  for a difference that is not there. This is the validator rule that keeps a
+  syntactically identical mutation out of a report, and it applies to every
+  manifest — one a person wrote as much as one a generator produced.
 
 ### `run --manifest <path> --project <dir> --out <run-dir> [--tests <path>] [--timeout <seconds>]`
 
 Execute every mutant in the manifest and write `baseline.json`, `results.json`,
-and execution logs into the run directory. Exit 0 when the run completed, 2 on
-infrastructure failure.
+`refusals.json`, and execution logs into the run directory. Exit 0 when the run
+completed, 2 on infrastructure failure.
 
 `--out` is the run directory itself, not a parent: its last path segment is the
 run identifier the documents carry. `--tests` may be repeated, and each value is
@@ -66,11 +83,42 @@ each run of the suite; omitted, it is derived from how long the baseline took. V
 produced no judgement is reported through `execution_status`, and an unusable
 baseline through the error channel below.
 
+A mutant a run cannot apply is left out of the run and reported, not allowed to
+end it. Every mutant the manifest names still gets an entry in `results.json`, in
+the manifest's order; a refused one carries `execution_status: "not_applied"` and
+the reason under `backend_raw.refusal`, as a `code` and a `message`. The record the
+entry is built from is `refusals.json`, written before anything is executed and read
+back by `collect`, because nothing else in a run directory has anywhere to keep it:
+the session holds jobs, and a refused mutant has none.
+
+Only when *every* mutant is refused does the run fail through the error channel, at
+whichever of the three points below empties the batch. There is nothing left to run
+by then — no session at all, or one whose every job has been marked skipped — and no
+results document worth writing either way.
+
+Three things can refuse a mutant this way, and each is a mutant the manifest was
+right about and the project cannot take:
+
+- the `validate` checks above, applied per mutant instead of stopping at the
+  first — including `ast_equal`, so a mutation with the original's syntax tree is
+  now reported as never applied rather than executed and reported as survived;
+- the session file the execution backend reads its parameters out of, when a
+  mutant's own text does not survive being written to it;
+- the backend's count of the jobs it made for one mutant, when that is not
+  exactly one. None means the mutation could not be matched; more than one means
+  no single match is the mutation described, so every one of them is left unrun.
+
+`not_applied` is what a run reports rather than what it hides: the core's exit
+precedence makes any `not_applied` entry exit 2, so a batch preserved this way is
+still a run that says something went wrong.
+
 ### `collect --out <run-dir>`
 
 Rebuild `results.json` from the backend state already present in the run
-directory, without executing anything. Idempotent, and safe to call after an
-interrupted `run`.
+directory — the session, and the `refusals.json` a run leaves beside it — without
+executing anything. Idempotent, and safe to call after an interrupted `run`. A run
+directory with no `refusals.json` refused nothing a reader can name, which is also
+true of every run directory made before that file existed.
 
 ### `spans --file <path> --project <dir>`
 
@@ -169,6 +217,79 @@ to a step named after the consumer was built would be the worse trade. The schem
 holds `stage` to being a string and no more, so validating a report before parsing
 it does not undo that tolerance; the seven names above are recorded in the field's
 description rather than as values a validator enforces.
+
+### Failure codes
+
+Every code the Python pack reports, by the stage that reports it. A code is stable
+in the sense `message` is not: the wording may be rewritten, the identifier is what
+a reader may branch on, so it is listed here or it is not one.
+
+A pack may report a code this list does not name — a consumer that met one would
+read the message and treat the failure as diagnosed but unrecognised — but this
+pack does not, and its own suite holds it to that.
+
+Preflight, before any mutant is touched:
+
+- `invalid_arguments` — the command line is not one this pack can act on.
+- `invalid_run_directory` — `--out` has no last path segment to use as a run
+  identifier.
+- `operator_not_registered` — Cosmic Ray cannot resolve this pack's operator, which
+  usually means the two are installed in different environments.
+- `unsupported_cosmic_ray` — the installed backend is outside the pinned range.
+
+Validation of the manifest's language rules:
+
+- `invalid_manifest` — the document is not a manifest this pack can read.
+- `replacement_does_not_compile` — the target file does not compile with the
+  replacement in the span's place. The `compiles_in_file` check above.
+- `invalid_replacement` — the replacement cannot stand in for a single node:
+  `single_statement` or `round_trips`.
+- `span_matches_no_node` — the span is not exactly one node the backend can match.
+- `mutation_is_ast_equal` — the mutated file has the original's syntax tree.
+
+The reference run, the session, and the execution:
+
+- `baseline_failed` — the suite did not pass before any mutation was applied, so
+  nothing after it would mean anything.
+- `unserializable_mutant` — the mutant's own text does not survive being written to
+  the session file the backend reads its parameters out of.
+- `mutant_job_mismatch` — the backend made no job for a mutant, or more than one.
+- `init_failed` — the backend could not build a session from the generated
+  configuration.
+- `exec_failed` — the backend stopped before it finished running the session. The
+  session survives, so `collect` still reports what did run.
+- `every_mutant_refused` — every mutant in the manifest was refused, at whichever of
+  the three points above emptied the batch.
+
+Rebuilding a run's results:
+
+- `incomplete_run_dir` — the directory is missing something a run writes before it
+  executes anything, so it is not a run directory to collect.
+
+Reporting where a mutation may land, all of which are about the file `spans` was
+asked for:
+
+- `invalid_target_path` — not a project-relative POSIX path.
+- `target_reached_through_link` — the file, or a directory on the way to it, is a
+  link.
+- `target_outside_project` — the path lands outside the project.
+- `target_missing` — there is no such file in the project.
+- `target_unreadable` — there is, and it could not be read.
+- `target_has_byte_order_mark` — it begins with a byte-order mark.
+- `target_not_utf8` — its bytes are not UTF-8.
+- `target_declares_other_encoding` — its leading comments declare another encoding.
+- `target_has_carriage_return` — it uses carriage returns.
+- `target_does_not_parse` — it is not valid Python.
+- `project_root_unresolvable` — `--project` does not resolve, or is not a directory.
+- `unpositioned_node` — the parser reported a node with no position, so no span of
+  this file can be trusted. A defect in the pack, reported as one.
+
+And two that belong to no step, because either can end any of them:
+
+- `interrupted` — the pack was stopped from outside before it finished. The run
+  directory keeps whatever the run had already done, and `collect` can report it.
+- `unexpected_error` — a failure the pack did not plan for, carrying the exception's
+  type and text rather than a traceback. Its `stage` is how far the pack had got.
 
 ## Output discipline
 

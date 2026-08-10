@@ -21,6 +21,7 @@ fn full_request() -> GenerationRequest {
             file: "tests/test_ranges.py".to_owned(),
             source: "def test_it():\n    assert overlaps(0, 1)\n".to_owned(),
         }],
+        excluded: vec!["\"\"\"Whether two ranges overlap.\"\"\"".to_owned()],
         mutant_count: 4,
         feedback: Some(CorrectionFeedback {
             defects: vec![Defect {
@@ -69,16 +70,18 @@ fn an_outcome_survives_a_round_trip() {
 }
 
 #[test]
-fn an_answer_with_no_tests_and_no_feedback_omits_them() {
+fn a_request_with_nothing_optional_in_it_omits_every_optional_key() {
     let request = GenerationRequest {
         file: "src/ranges.py".to_owned(),
         source: "def overlaps(a, b):\n    return a < b\n".to_owned(),
         tests: Vec::new(),
+        excluded: Vec::new(),
         mutant_count: 3,
         feedback: None,
     };
     let written = serde_json::to_string(&request).unwrap();
     assert!(!written.contains("tests"), "{written}");
+    assert!(!written.contains("excluded"), "{written}");
     assert!(!written.contains("feedback"), "{written}");
     let read: GenerationRequest = serde_json::from_str(&written).unwrap();
     assert_eq!(read, request);

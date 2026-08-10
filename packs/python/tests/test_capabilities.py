@@ -5,9 +5,11 @@ them — a real subprocess, with the exit code and the last line of stdout
 checked, and stderr asserted empty because an execution backend may discard it.
 """
 
+import ast
 import json
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,12 @@ from tremula_python import capabilities
 from tremula_python.__main__ import main
 
 CONTRACTS = Path(__file__).resolve().parents[3] / "contracts"
+
+PACK_SOURCE = Path(capabilities.__file__).parent
+"""The pack's own modules, which is what the failure-code scan below reads."""
+
+CODE_POSITIONS = {"PackFailure": 1, "Refusal": 0}
+"""Where a failure code sits in the two things that carry one."""
 
 
 def _contract(relative: str) -> dict[str, Any]:
@@ -63,6 +71,18 @@ def test_the_capabilities_document_matches_the_published_example() -> None:
     }
 
 
+def test_the_advertised_checks_are_the_ones_validate_applies() -> None:
+    # The list is a claim about behaviour, in the order the behaviour happens: a
+    # newer core reads it to decide whether the check it needs is there at all.
+    assert capabilities.build().validate_checks == [
+        "compiles_in_file",
+        "single_statement",
+        "round_trips",
+        "span_matches_node",
+        "ast_equal",
+    ]
+
+
 def test_every_check_the_pack_reports_is_documented_in_the_protocol() -> None:
     # `validate_checks` is how a newer core decides whether the checks it wants
     # exist, so a name only means something if the protocol says what it means.
@@ -81,6 +101,76 @@ def test_every_subcommand_the_pack_reports_is_documented_in_the_protocol() -> No
         assert f"### `{subcommand} " in protocol, (
             f"{subcommand} is not documented in pack-protocol.md"
         )
+
+
+def test_every_failure_code_the_pack_spells_out_is_documented_in_the_protocol() -> None:
+    # `code` is what a reader of a failed run branches on, and the protocol calls it
+    # a stable machine-readable identifier — which it is only if the protocol says
+    # what it identifies. The codes are read out of the pack's own source rather than
+    # from a list kept beside it, because the list is what drifts: a code added to a
+    # `raise` and forgotten in the list is exactly the undocumented identifier this
+    # test exists to catch.
+    protocol = (CONTRACTS / "pack-protocol.md").read_text(encoding="utf-8")
+    codes = _failure_codes()
+
+    assert "replacement_does_not_compile" in codes, "the scan below found nothing"
+    for code in sorted(codes):
+        assert f"`{code}`" in protocol, f"{code} is not documented in pack-protocol.md"
+
+
+def _failure_codes() -> set[str]:
+    """Every failure code the pack's source spells out.
+
+    Three spellings reach a document and all three are followed: a literal where the
+    code is carried, a module constant named there, and a helper of the same module
+    that takes the code as a parameter of its own. A code that arrives from somewhere
+    else — a refusal built from a failure that was raised elsewhere, a code read back
+    out of a run directory — is not spelled out here and was collected where it was.
+    """
+    codes: set[str] = set()
+    for module in sorted(PACK_SOURCE.glob("*.py")):
+        tree = ast.parse(module.read_text(encoding="utf-8"))
+        constants = _string_constants(tree)
+        for argument in _codes_carried_in(tree):
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                codes.add(argument.value)
+            elif isinstance(argument, ast.Name) and argument.id in constants:
+                codes.add(constants[argument.id])
+    return codes
+
+
+def _codes_carried_in(tree: ast.Module) -> Iterator[ast.expr]:
+    """Every expression this module hands over as a failure code."""
+    forwarding = {
+        node.name: [argument.arg for argument in node.args.args].index("code")
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        if "code" in [argument.arg for argument in node.args.args]
+    }
+    positions = {**CODE_POSITIONS, **forwarding}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        at = positions.get(node.func.id)
+        if at is None:
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "code":
+                yield keyword.value
+        if at < len(node.args):
+            yield node.args[at]
+
+
+def _string_constants(tree: ast.Module) -> dict[str, str]:
+    """The module's own top-level string constants, by the name they are bound to."""
+    return {
+        target.id: statement.value.value
+        for statement in tree.body
+        if isinstance(statement, ast.Assign) and isinstance(statement.value, ast.Constant)
+        if isinstance(statement.value.value, str)
+        for target in statement.targets
+        if isinstance(target, ast.Name)
+    }
 
 
 def test_an_unknown_subcommand_reports_a_pack_error() -> None:

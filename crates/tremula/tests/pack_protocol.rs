@@ -409,10 +409,11 @@ fn the_repositorys_pack_answers_the_handshake() {
     assert_eq!(
         capabilities.validate_checks,
         [
-            "parses",
+            "compiles_in_file",
             "single_statement",
             "round_trips",
-            "span_matches_node"
+            "span_matches_node",
+            "ast_equal"
         ]
     );
 }

@@ -159,6 +159,30 @@ fn a_target_that_is_a_symbolic_link_is_rejected() {
     );
 }
 
+/// The root every path in a manifest is relative to. A root that does not resolve
+/// is reported about the root rather than about a mutant, and it names the root it
+/// could not resolve, because that is the value the reader passed and the only one
+/// they can correct.
+#[test]
+fn a_project_root_that_does_not_resolve_is_named_in_the_message() {
+    let root = project();
+    let missing = root.path().join("no-such-directory");
+
+    let error = reject(&missing, vec![valid_mutant()]);
+
+    assert!(
+        matches!(error, ValidationError::ProjectRootUnresolvable { .. }),
+        "{error}"
+    );
+    let said = error.to_string();
+    assert!(said.contains("cannot resolve the project root"), "{said}");
+    assert!(
+        said.contains(&missing.display().to_string()),
+        "`{said}` does not say which root could not be resolved"
+    );
+    assert!(said.contains("exists and is readable"), "{said}");
+}
+
 /// The same escape one level up: the file itself is ordinary, but a directory on
 /// the way to it is a link out of the project. Only resolving the whole path
 /// catches this one.

@@ -101,6 +101,15 @@ class RunLayout:
         return self.directory / "baseline.json"
 
     @property
+    def refusals(self) -> Path:
+        """Which mutants the run left out before it started, and why.
+
+        The session has room for jobs and a refused mutant has none, so this is
+        the only place the reason can wait for a later `collect`.
+        """
+        return self.directory / "refusals.json"
+
+    @property
     def results(self) -> Path:
         """Everything the run observed, in neutral terms."""
         return self.directory / "results.json"

@@ -34,7 +34,7 @@ from cosmic_ray.work_item import (  # pyright: ignore[reportMissingTypeStubs] - 
     WorkResult,
 )
 
-from tremula_python import capabilities, engine, marker, plan_session
+from tremula_python import capabilities, engine, marker, plan_session, refusals
 from tremula_python.contracts import (
     CONTRACT_VERSION,
     ExecutionStatus,
@@ -50,6 +50,7 @@ from tremula_python.engine import MUTANT_ID_ARGUMENT, Session
 from tremula_python.errors import PackFailure
 from tremula_python.plan_session import ExpectedHashes
 from tremula_python.pytest_runner import Marker
+from tremula_python.refusals import Refusal
 from tremula_python.run_layout import RunLayout, write_atomically
 
 TIMEOUT_OUTPUT = "timeout"
@@ -97,13 +98,15 @@ def collect(run_dir: Path) -> Results:
     manifest = Manifest.model_validate_json(layout.manifest.read_bytes())
     hashes = plan_session.read_expected_hashes(layout.expected_hashes)
     diffs = plan_session.read_diffs(layout.diffs)
+    refused = refusals.read(layout)
     with engine.open_session(layout.session) as session:
         jobs = _jobs_by_mutant(session, manifest)
     entries: list[ResultEntry] = []
     for mutant in manifest.mutants:
         job = jobs.get(mutant.id)
-        reading = _read(job, mutant, hashes)
-        entries.append(_entry(mutant, job, reading, diffs.get(mutant.id)))
+        refusal = refused.get(mutant.id)
+        reading = _read(job, mutant, hashes, refusal)
+        entries.append(_entry(mutant, job, reading, diffs.get(mutant.id), refusal))
         _keep_the_output(layout, mutant, job, reading)
     results = Results(
         schema_version=CONTRACT_VERSION,
@@ -171,14 +174,24 @@ def _was_filtered_out(result: WorkResult | None) -> bool:
     return result is not None and result.worker_outcome == WorkerOutcome.SKIPPED
 
 
-def _read(job: _Job | None, mutant: Mutant, hashes: ExpectedHashes) -> _Reading:
+def _read(
+    job: _Job | None, mutant: Mutant, hashes: ExpectedHashes, refusal: Refusal | None
+) -> _Reading:
     """Translate one attempt into a neutral status, first matching rule winning.
 
-    The order is the contract. A timeout outranks both the missing marker and the
-    hash comparison, because the runner writes the hashes before the suite starts:
-    a run it had to kill still carries them, and calling that a hash problem would
-    hide the timeout behind an unrelated diagnosis.
+    The order is the contract. A refusal outranks everything, because it happened
+    before the session did: the run decided this mutation could not be applied, and
+    whatever the session says about it — nothing, or a job left skipped because
+    nobody could tell which of two matches it was — is a consequence of that
+    decision rather than a second opinion about it.
+
+    A timeout then outranks both the missing marker and the hash comparison,
+    because the runner writes the hashes before the suite starts: a run it had to
+    kill still carries them, and calling that a hash problem would hide the timeout
+    behind an unrelated diagnosis.
     """
+    if refusal is not None:
+        return _Reading(ExecutionStatus.NOT_APPLIED, refusal.message)
     if job is None:
         return _Reading(
             ExecutionStatus.NOT_APPLIED,
@@ -242,7 +255,11 @@ def _hash_problem(reported: Marker, mutant: Mutant, hashes: ExpectedHashes) -> s
 
 
 def _entry(
-    mutant: Mutant, job: _Job | None, reading: _Reading, diff: str | None
+    mutant: Mutant,
+    job: _Job | None,
+    reading: _Reading,
+    diff: str | None,
+    refusal: Refusal | None,
 ) -> ResultEntry:
     """One mutant's entry.
 
@@ -251,35 +268,51 @@ def _entry(
     a file an interrupted run left mutated. `finished_at` is always absent: the
     session records no time of its own, and `truncated` is always false because
     nothing here shortens what it captured.
+
+    A refused mutant reports no runner and no location, because it was never given
+    either.
     """
+    refused = refusal is not None
     return ResultEntry(
         mutant_id=mutant.id,
         execution_status=reading.status,
-        location=job.location if job is not None else None,
+        location=job.location if job is not None and not refused else None,
         runner=(
             marker.runner_result_of(job.reported)
-            if job is not None and job.reported is not None
+            if job is not None and job.reported is not None and not refused
             else None
         ),
         diff=diff,
         truncated=False,
         finished_at=None,
-        backend_raw=_backend_raw(job),
+        backend_raw=_backend_raw(job, refusal),
     )
 
 
-def _backend_raw(job: _Job | None) -> dict[str, object]:
-    """The backend's own account of the job, preserved and never judged."""
+def _backend_raw(job: _Job | None, refusal: Refusal | None) -> dict[str, object]:
+    """The backend's own account of the job, preserved and never judged.
+
+    A refusal is not the backend's account of anything — it is the run's, and it
+    is why there is no account to keep — but this is the one place the results
+    contract leaves open for it, and a reader that finds a mutation never applied
+    needs to be told why in the document rather than sent looking for a log.
+    """
+    raw: dict[str, object] = {}
+    if refusal is not None:
+        raw["refusal"] = {"code": refusal.code, "message": refusal.message}
     if job is None or job.result is None:
-        return {}
+        return raw
     result = job.result
-    return {
-        "worker_outcome": result.worker_outcome.value,
-        "test_outcome": result.test_outcome.value if result.test_outcome else None,
-        "output": result.output,
-        "diff": result.diff,
-        "pytest_exit": job.reported["pytest_exit"] if job.reported else None,
-    }
+    raw.update(
+        {
+            "worker_outcome": result.worker_outcome.value,
+            "test_outcome": result.test_outcome.value if result.test_outcome else None,
+            "output": result.output,
+            "diff": result.diff,
+            "pytest_exit": job.reported["pytest_exit"] if job.reported else None,
+        }
+    )
+    return raw
 
 
 def _keep_the_output(

@@ -23,6 +23,7 @@ from tremula_python.errors import PackFailure
 from tremula_python.run_layout import RunLayout
 
 SOURCE = "def overlaps(start, end):\n    return start < end\n"
+ANNOTATED = "def needs_break(minutes: int) -> bool:\n    return minutes >= 60\n"
 TARGET = "src/overlap.py"
 TWIN = "src/twin.py"
 
@@ -31,20 +32,21 @@ def _mutant(
     identifier: str,
     *,
     file: str = TARGET,
+    source: str = SOURCE,
     located: str = "start < end",
     original: str | None = None,
     replacement: str = "start <= end",
 ) -> dict[str, Any]:
-    """A mutant over `SOURCE`.
+    """A mutant over `source`.
 
     `original` defaults to the text the span really covers; giving it separately
     is how a mutant that cannot match anything is described.
     """
-    start = SOURCE.index(located)
+    start = source.index(located)
     return {
         "id": identifier,
         "file": file,
-        "base_file_sha256": sha256(SOURCE.encode("utf-8")).hexdigest(),
+        "base_file_sha256": sha256(source.encode("utf-8")).hexdigest(),
         "span": {"start_byte": start, "end_byte": start + len(located.encode("utf-8"))},
         "original": located if original is None else original,
         "replacement": replacement,
@@ -60,7 +62,9 @@ def _document(*mutants: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _planned(tmp_path: Path, *mutants: dict[str, Any]) -> tuple[RunLayout, Manifest, Path]:
+def _planned(
+    tmp_path: Path, *mutants: dict[str, Any], source: str = SOURCE
+) -> tuple[RunLayout, Manifest, Path]:
     """A project holding every target file, and a plan written for it."""
     document = _document(*mutants)
     manifest = Manifest.model_validate(document)
@@ -68,7 +72,7 @@ def _planned(tmp_path: Path, *mutants: dict[str, Any]) -> tuple[RunLayout, Manif
     for relative in plan_session.target_files(manifest):
         path = project / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(SOURCE, encoding="utf-8")
+        path.write_text(source, encoding="utf-8")
     layout = RunLayout.at(tmp_path / "20260808T120000Z-3b1f8c")
     layout.prepare()
     plan_session.build_plan(manifest, project, layout, [], 40.0).write(
@@ -77,9 +81,11 @@ def _planned(tmp_path: Path, *mutants: dict[str, Any]) -> tuple[RunLayout, Manif
     return layout, manifest, project
 
 
-def _initialized(tmp_path: Path, *mutants: dict[str, Any]) -> tuple[RunLayout, Manifest, Path]:
+def _initialized(
+    tmp_path: Path, *mutants: dict[str, Any], source: str = SOURCE
+) -> tuple[RunLayout, Manifest, Path]:
     """A written plan, and a session Cosmic Ray has just initialized from it."""
-    layout, manifest, project = _planned(tmp_path, *mutants)
+    layout, manifest, project = _planned(tmp_path, *mutants, source=source)
     engine.init_session(layout, project)
     return layout, manifest, project
 
@@ -114,7 +120,7 @@ def test_filtering_leaves_exactly_one_job_per_mutant(tmp_path: Path) -> None:
         tmp_path, _mutant("first"), _mutant("second", replacement="start > end")
     )
 
-    jobs = engine.filter_jobs(layout.session, manifest)
+    jobs = engine.filter_jobs(layout.session, manifest).jobs
 
     assert sorted(jobs) == ["first", "second"]
     assert len(set(jobs.values())) == 2
@@ -123,7 +129,7 @@ def test_filtering_leaves_exactly_one_job_per_mutant(tmp_path: Path) -> None:
 def test_filtering_skips_every_job_that_is_not_a_manifest_mutant(tmp_path: Path) -> None:
     layout, manifest, _ = _initialized(tmp_path, _mutant("first"))
 
-    jobs = engine.filter_jobs(layout.session, manifest)
+    jobs = engine.filter_jobs(layout.session, manifest).jobs
 
     outcomes = _outcomes(layout)
     kept = set(jobs.values())
@@ -147,7 +153,7 @@ def test_a_mutant_that_also_matches_another_file_keeps_only_its_own_job(
     )
     before = _jobs_by_operator(layout)[FULL_OPERATOR_NAME]
 
-    jobs = engine.filter_jobs(layout.session, manifest)
+    jobs = engine.filter_jobs(layout.session, manifest).jobs
 
     assert len(before) == 4, "each mutant should match in both identical files"
     assert sorted(jobs) == ["first", "twin"]
@@ -161,19 +167,49 @@ def test_a_mutant_that_also_matches_another_file_keeps_only_its_own_job(
     assert kept[jobs["twin"]] == TWIN
 
 
-def test_a_mutant_with_no_job_of_its_own_is_an_adapter_failure(tmp_path: Path) -> None:
-    # Language validation has already established that the span matches a node,
-    # so a mutant with no job means the adapter lost it — never a manifest
-    # problem, and never something to pass over quietly.
+def test_a_mutant_with_no_job_of_its_own_is_refused_and_the_batch_goes_on(
+    tmp_path: Path,
+) -> None:
+    # Language validation has already established that the span matches a node, so
+    # a mutant with no job means the adapter lost it. It is still never passed over
+    # quietly — it is named — but it no longer takes the rest of the batch with it.
     layout, manifest, _ = _initialized(
         tmp_path, _mutant("first"), _mutant("ghost", original="start > end")
     )
 
-    with pytest.raises(PackFailure) as raised:
-        engine.filter_jobs(layout.session, manifest)
+    filtered = engine.filter_jobs(layout.session, manifest)
 
-    assert (raised.value.stage.value, raised.value.code) == ("plan", "mutant_job_mismatch")
-    assert "ghost" in raised.value.message
+    assert list(filtered.jobs) == ["first"]
+    assert filtered.refused["ghost"].code == "mutant_job_mismatch"
+    assert "ghost" in filtered.refused["ghost"].message
+
+
+def test_a_mutant_the_backend_matches_twice_is_refused_and_neither_job_runs(
+    tmp_path: Path,
+) -> None:
+    # One annotated parameter is two nodes with the same extent and the same code —
+    # the parameter and the annotated name inside it — so the operator matches
+    # twice. Neither match is on its own the mutation the manifest describes, so
+    # both are left unrun instead of one being picked.
+    layout, manifest, _ = _initialized(
+        tmp_path,
+        _mutant(
+            "annotated",
+            source=ANNOTATED,
+            located="minutes: int",
+            replacement="minutes: float",
+        ),
+        source=ANNOTATED,
+    )
+
+    filtered = engine.filter_jobs(layout.session, manifest)
+
+    assert filtered.jobs == {}
+    assert filtered.refused["annotated"].code == "mutant_job_mismatch"
+    assert "2 jobs" in filtered.refused["annotated"].message
+    outcomes = _outcomes(layout)
+    for job_id in _jobs_by_operator(layout)[FULL_OPERATOR_NAME]:
+        assert outcomes[job_id] == "skipped", "a job nobody trusts must not be left pending"
 
 
 def test_the_log_records_a_command_that_can_be_run_again(tmp_path: Path) -> None:

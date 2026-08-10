@@ -3,8 +3,11 @@
 A manifest addresses code by raw byte offsets, while parso — and therefore
 Cosmic Ray — addresses it by `(line, column)` pairs whose columns count
 *characters*. This module owns that translation plus the two checks that stand
-on it: whether a replacement is parseable Python, and whether a span lines up
-with a real node (so the operator can match it at all).
+on it: whether a replacement can stand in for one node, and whether a span lines
+up with a real node (so the operator can match it at all).
+
+Whether a replacement is *valid* is not asked here. That question belongs to the
+file the replacement makes, and `preflight` asks it there.
 
 Every function here assumes neutral validation already accepted the input:
 UTF-8, LF line endings, and spans inside the file. A span that violates those
@@ -72,22 +75,10 @@ class ParsoNode(Protocol):
     def get_first_leaf(self) -> ParsoLeaf: ...
 
 
-class ParsoIssue(Protocol):
-    """One problem parso's error normalizer found in a parse tree."""
-
-    @property
-    def message(self) -> str: ...
-
-    @property
-    def start_pos(self) -> Position: ...
-
-
 class ParsoGrammar(Protocol):
     """The parso grammar surface this pack uses, in the types it really has."""
 
     def parse(self, code: str) -> ParsoNode: ...
-
-    def iter_errors(self, node: ParsoNode) -> list[ParsoIssue]: ...
 
 
 def python_grammar() -> ParsoGrammar:
@@ -104,8 +95,10 @@ def python_grammar() -> ParsoGrammar:
 def parse_source(source: str) -> ParsoNode:
     """Parse `source` into a `file_input` node, the way Cosmic Ray does.
 
-    parso never raises on invalid code: it recovers with error nodes. Use
-    `validate_replacement` to find out whether the code was actually valid.
+    parso never raises on invalid code: it recovers with error nodes, which is
+    what lets a replacement that is no module of its own still be measured for
+    shape here. Whether it is valid Python is decided by compiling the file it
+    goes into.
     """
     return python_grammar().parse(source)
 
@@ -142,31 +135,30 @@ def byte_span_to_positions(source_bytes: bytes, span: Span) -> tuple[Position, P
     )
 
 
-def validate_replacement(replacement: str) -> list[str]:
-    """Report why `replacement` cannot be injected, or nothing if it can.
+def injection_problems(replacement: str) -> list[str]:
+    """Report why `replacement` cannot stand in for one node, or nothing if it can.
 
-    Three checks. First, syntax: parso recovers from invalid code instead of
-    raising, so `iter_errors` is the only way to hear about it. Second, arity:
-    `mutate` can return exactly one node, so a replacement that parses into two
-    top-level statements is rejected here rather than silently losing one. Third,
-    round trip: the node parsed back out must carry the whole replacement, which
-    catches everything parso files under a leaf's `prefix` — trailing comments,
-    leading comments, leading blank lines — since the operator overwrites that
-    prefix with the original node's and the text there would vanish.
+    Two checks, and deliberately not a third. Arity: `mutate` can return exactly
+    one node, so a replacement that parses into two top-level statements is
+    rejected here rather than silently losing one. Round trip: the node parsed
+    back out must carry the whole replacement, which catches everything parso
+    files under a leaf's `prefix` — trailing comments, leading comments, leading
+    blank lines — since the operator overwrites that prefix with the original
+    node's and the text there would vanish.
+
+    The third check this used to make was syntax, and dropping it is measured
+    rather than relaxed. A replacement read on its own is not the code that will
+    run: `return errors` is no module and parses as nothing by itself, while
+    being exactly right inside a function. Of 144 measured proposals, 34 were
+    refused for failing to parse alone and every one of them compiled once
+    spliced into its file. Sixteen are still refused, by arity here and by the
+    node-boundary check — a bare `if` header is not a node this contract can
+    replace, whichever way it is read.
 
     An empty replacement is fine: it deletes the target node.
     """
     normalized = normalize_replacement(replacement)
-    grammar = python_grammar()
-    tree = grammar.parse(normalized)
-    errors = [
-        f"{issue.message} at line {issue.start_pos[0]}, column {issue.start_pos[1]}"
-        for issue in grammar.iter_errors(tree)
-    ]
-    if errors:
-        return errors
-
-    statements = significant_children(tree)
+    statements = significant_children(parse_source(normalized))
     if len(statements) > 1:
         return [
             f"replacement must be a single top-level statement, found {len(statements)}: "

@@ -36,6 +36,7 @@ fn overlaps_request() -> GenerationRequest {
             file: "test_ranges.py".to_owned(),
             source: "from ranges import overlaps\n\n\ndef test_ranges_that_only_touch_do_not_overlap() -> None:\n    assert not overlaps(0, 30, 30, 60)\n".to_owned(),
         }],
+        excluded: Vec::new(),
         mutant_count: 4,
         feedback: None,
     }
@@ -84,7 +85,7 @@ fn the_archived_user_template_spells_the_prompt_that_was_measured() {
 }
 
 #[test]
-fn three_of_the_four_changes_are_lines_of_the_system_prompt() {
+fn three_of_the_five_changes_are_lines_of_the_system_prompt() {
     let archived: Vec<&str> = archive::SYSTEM.lines().collect();
     let sent: Vec<&str> = SYSTEM.lines().collect();
     let dropped: Vec<&str> = archived
@@ -141,6 +142,45 @@ fn the_fourth_change_is_the_word_the_correction_turn_uses() {
             .map(|(said, _)| said),
         Some(sentence),
         "an empty list is still that sentence and still a message"
+    );
+}
+
+#[test]
+fn the_fifth_change_is_the_block_naming_what_not_to_aim_at() {
+    // Present only when the request names something, so a request without one
+    // sends the measured prompt exactly — which is what the snapshot below holds.
+    // The block exists because the caller refuses such a mutation in any case, and
+    // a refusal costs one of the corrections a round owns.
+    let mut request = overlaps_request();
+    assert!(
+        !assemble(&request).user.contains("Leave these alone"),
+        "a request that excludes nothing says nothing about it"
+    );
+
+    request.excluded = vec![
+        "\"\"\"Whether two half-open minute ranges share a minute.\"\"\"".to_owned(),
+        "tuple[int, int]\n".to_owned(),
+    ];
+    let user = assemble(&request).user;
+
+    let (before, after) = user
+        .split_once("Leave these alone.")
+        .expect("the block is in the prompt");
+    assert!(
+        before.contains("These are the tests that cover it."),
+        "the block comes after what it qualifies"
+    );
+    assert!(
+        after.contains("share a minute"),
+        "the excluded text is quoted verbatim: {after}"
+    );
+    assert!(
+        after.contains("```python\ntuple[int, int]\n```"),
+        "each stretch is fenced, with no trailing newline of its own: {after}"
+    );
+    assert!(
+        user.ends_with("Produce 4 mutations of the function above."),
+        "the ask is still the last thing said"
     );
 }
 

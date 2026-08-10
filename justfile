@@ -18,4 +18,4 @@ build:
 
 e2e:
     uv sync
-    INSTA_UPDATE=no cargo test --test e2e --features e2e
+    INSTA_UPDATE=no cargo test --features e2e --test e2e --test e2e_generate
