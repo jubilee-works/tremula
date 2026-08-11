@@ -10,6 +10,7 @@
 
 use std::{fmt::Write as _, fs, path::Path};
 
+use assert_cmd::Command;
 use tremula::bundle::{
     Packaged,
     logs::{Machine, clean},
@@ -128,6 +129,127 @@ fn both_the_spelling_and_the_resolved_form_of_a_path_are_taken_out() {
 
     assert!(!said.contains(&resolved.display().to_string()), "{said}");
     assert!(!said.contains(&project.display().to_string()), "{said}");
+}
+
+/// The spelling a log holds is not always a spelling the command line gave. `--project .`
+/// is relative and names nothing a log could be cleaned against, so the only absolute form
+/// of the project there is to learn from is the resolved one — and on this platform the
+/// resolved form of anything under `/tmp` or `/var` carries a `/private` the process that
+/// printed the path may never have had. One directory, two spellings, one placeholder.
+#[test]
+fn the_other_spelling_of_a_resolved_path_is_taken_out_as_well() {
+    let project = Path::new("/private/tmp/tremula-review-fixture/sample_project");
+    let run = project.join(".tremula/runs/20260810T090000Z-abc123");
+    // Nothing is there to resolve, which is the point: one spelling is all there is to
+    // learn from, and the other has to be derived from it.
+    assert!(!project.exists(), "{}", project.display());
+    let raw = "cachedir: /tmp/tremula-review-fixture/sample_project/.pytest_cache\n\
+               a runner wrote /tmp/tremula-review-fixture/sample_project/.tremula/runs/20260810T090000Z-abc123/one.txt\n";
+
+    let said = String::from_utf8(cleaned(&machine(project, &run), raw.as_bytes())).unwrap();
+
+    assert!(!said.contains("/tmp/tremula-review-fixture"), "{said}");
+    assert!(said.contains("<project>/.pytest_cache"), "{said}");
+    assert!(said.contains("<run>/one.txt"), "{said}");
+}
+
+/// The same in the other direction: a path given without the `/private` still has to take
+/// the resolved spelling of itself out, since a test framework prints whichever it holds.
+#[test]
+fn a_path_given_without_the_private_prefix_takes_the_prefixed_spelling_out_too() {
+    let project = Path::new("/tmp/tremula-review-fixture/sample_project");
+    let run = project.join(".tremula/runs/20260810T090000Z-abc123");
+    assert!(!project.exists(), "{}", project.display());
+    let raw = "rootdir: /private/tmp/tremula-review-fixture/sample_project\n";
+
+    let said = String::from_utf8(cleaned(&machine(project, &run), raw.as_bytes())).unwrap();
+
+    assert!(
+        !said.contains("/private/tmp/tremula-review-fixture"),
+        "{said}"
+    );
+    assert!(said.contains("rootdir: <project>"), "{said}");
+}
+
+/// A prefix is the project's only where the path ends or goes on with a separator. A
+/// directory beside the project whose name starts with the project's is a different
+/// directory, and rewriting it into the project's placeholder would put a claim in the log
+/// that is not true — `<project>ile/notes.txt` describes nothing that exists.
+#[test]
+fn a_directory_whose_name_only_begins_with_the_project_s_is_left_as_it_is() {
+    let project = Path::new("/private/tmp/tremula-review-fixture/sample_project");
+    let run = project.join("runs").join("one");
+    assert!(!project.exists(), "{}", project.display());
+    let raw = "notes at /private/tmp/tremula-review-fixture/sample_projectile/notes.txt\n";
+
+    let said = String::from_utf8(cleaned(&machine(project, &run), raw.as_bytes())).unwrap();
+
+    assert!(!said.contains("<project>ile"), "{said}");
+    assert!(said.contains("sample_projectile/notes.txt"), "{said}");
+}
+
+/// The invocation everybody actually types. `--project .` is the default, so this is the
+/// path a bundle takes unless somebody spells the project out, and a log of a real suite
+/// carries the project in whichever spelling the interpreter was handed.
+#[test]
+fn a_default_invocation_takes_the_project_out_of_a_log() {
+    let fixture = RunFixture::of(&one_survivor());
+    let spelled = fixture.project().display().to_string();
+    fs::write(
+        fixture
+            .run_dir()
+            .join("logs")
+            .join(format!("{}.txt", fixture.ids[0])),
+        format!("cachedir: {spelled}/.pytest_cache\n"),
+    )
+    .unwrap();
+    // The temporary directory is a needle of its own, so a project inside it would be
+    // cleaned by that needle rather than by the project's and prove nothing.
+    let elsewhere = fixture.beside("elsewhere-tmp");
+    fs::create_dir_all(&elsewhere).unwrap();
+    let out = fixture.beside("bundle");
+
+    let done = Command::cargo_bin("tremula")
+        .unwrap()
+        .current_dir(fixture.project())
+        .args(["bundle", "--project", "."])
+        .arg("--out")
+        .arg(&out)
+        .env("TMPDIR", &elsewhere)
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        done.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&done.stderr)
+    );
+    let log = fs::read_to_string(out.join("logs").join(format!("{}.txt", fixture.ids[0]))).unwrap();
+    assert!(!log.contains(&spelled), "{log}");
+    assert!(log.contains("<project>/.pytest_cache"), "{log}");
+}
+
+/// A log that is there and cannot be read is not a log the run never kept. Leaving it out
+/// silently would publish a bundle one log short with nothing in it saying so.
+#[test]
+fn a_log_that_cannot_be_read_stops_the_bundle_rather_than_being_left_out() {
+    let fixture = RunFixture::of(&one_survivor());
+    let path = fixture
+        .run_dir()
+        .join("logs")
+        .join(format!("{}.txt", fixture.ids[1]));
+    fs::remove_file(&path).unwrap();
+    // A directory where a file belongs: present, unreadable as bytes, and dependent on no
+    // permission bits.
+    fs::create_dir(&path).unwrap();
+
+    let failure = package(&fixture.asking()).unwrap_err();
+
+    let said = failure.to_string();
+    assert!(said.contains("cannot read"), "{said}");
+    assert!(said.contains(&fixture.ids[1]), "{said}");
+    assert!(!fixture.default_out().exists(), "a bundle was published");
 }
 
 /// The temporary directory a runner works in is the machine's as much as a home

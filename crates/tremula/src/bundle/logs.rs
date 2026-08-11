@@ -29,7 +29,7 @@
 //! reads the pack's configuration.
 
 use std::{
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -62,12 +62,19 @@ const PROJECT: &[u8] = b"<project>";
 const TEMPORARY: &[u8] = b"<tmp>";
 const HOME: &[u8] = b"<home>";
 
+/// Where the directories a platform reaches through a link of its own actually live.
+const PRIVATE: &str = "/private";
+
+/// The directories that are links into [`PRIVATE`] here. One directory, two absolute
+/// spellings, and a process prints whichever of them it was handed.
+const LINKED: [&str; 2] = ["/tmp", "/var"];
+
 /// The directories of the machine a run happened on, ready to be taken out of a log.
 ///
-/// Each one is held in both the spelling it was given and the spelling it resolves to,
-/// because a log carries whichever form the process that printed it happened to have —
-/// a project root comes off the command line, and a test framework prints the resolved
-/// one. On this platform they differ for anything under `/tmp` or `/var`.
+/// Each one is held in every absolute spelling this platform has for it: the one it was
+/// given, the one it resolves to, and the sibling of each of those across `/private`. A
+/// log carries whichever form the process that printed it happened to have — a project
+/// root comes off the command line, and a test framework prints the resolved one.
 #[derive(Debug, Default)]
 pub struct Machine {
     /// Longest first, so a run directory inside a project is recognised as the run
@@ -102,13 +109,21 @@ impl Machine {
         machine
     }
 
-    /// Remember one directory, if it is one a log could name unambiguously.
-    ///
-    /// A relative path is refused, and `.` is why: it is what `--project` defaults to,
-    /// and taking every full stop out of a suite's output would destroy the output.
+    /// Remember one directory, in every absolute spelling this platform has for it.
     fn learn(&mut self, directory: &Path, replacement: &'static [u8]) {
         let spelled = directory.to_string_lossy();
         let trimmed = spelled.trim_end_matches('/');
+        self.remember(trimmed, replacement);
+        if let Some(sibling) = sibling_spelling(trimmed) {
+            self.remember(&sibling, replacement);
+        }
+    }
+
+    /// Remember one spelling, if it is one a log could name unambiguously.
+    ///
+    /// A relative path is refused, and `.` is why: it is what `--project` defaults to,
+    /// and taking every full stop out of a suite's output would destroy the output.
+    fn remember(&mut self, trimmed: &str, replacement: &'static [u8]) {
         if trimmed.len() < 2 || !trimmed.starts_with('/') {
             return;
         }
@@ -118,6 +133,33 @@ impl Machine {
         }
         self.replacements.push((needle, replacement));
     }
+}
+
+/// The other absolute spelling of one directory, when this platform has two.
+///
+/// This is what makes the default invocation safe. `--project .` is relative, so the only
+/// absolute form of the project there is to learn from is the resolved one — and a suite
+/// handed the other spelling would otherwise have it published. Deriving the sibling from
+/// whichever form is in hand covers both directions, and both map to one placeholder.
+fn sibling_spelling(trimmed: &str) -> Option<String> {
+    for linked in LINKED {
+        if let Some(rest) = trimmed.strip_prefix(linked)
+            && a_component_ends_there(rest)
+        {
+            return Some(format!("{PRIVATE}{trimmed}"));
+        }
+        if let Some(rest) = trimmed.strip_prefix(&format!("{PRIVATE}{linked}"))
+            && a_component_ends_there(rest)
+        {
+            return Some(format!("{linked}{rest}"));
+        }
+    }
+    None
+}
+
+/// Whether a prefix ended where a component of the path ends, rather than inside a name.
+fn a_component_ends_there(rest: &str) -> bool {
+    rest.is_empty() || rest.starts_with('/')
 }
 
 /// Somebody's home directory, when the environment says which.
@@ -182,17 +224,36 @@ fn at(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
-/// Every occurrence of `needle` in `haystack`, replaced.
+/// Every occurrence of `needle` in `haystack` that is really that directory, replaced.
+///
+/// A directory is only the one named where the path ends or goes on with a separator. A
+/// sibling whose name begins with the project's — `sample_projectile` beside
+/// `sample_project` — is a different directory, and rewriting it into `<project>ile` would
+/// put a claim in the log that describes nothing that exists.
 fn replaced(haystack: &[u8], needle: &[u8], replacement: &[u8]) -> Vec<u8> {
     let mut written = Vec::with_capacity(haystack.len());
     let mut rest = haystack;
     while let Some(found) = at(rest, needle) {
+        let after = found + needle.len();
         written.extend_from_slice(&rest[..found]);
-        written.extend_from_slice(replacement);
-        rest = &rest[found + needle.len()..];
+        if extends_a_name(rest.get(after).copied()) {
+            written.extend_from_slice(&rest[found..after]);
+        } else {
+            written.extend_from_slice(replacement);
+        }
+        rest = &rest[after..];
     }
     written.extend_from_slice(rest);
     written
+}
+
+/// Whether a byte carries on the name a needle ended in.
+///
+/// A separator ends a component and so does everything a log puts after a path — a colon,
+/// a space, a quote, a newline. What continues one is a letter, a digit, the underscore
+/// that a language's own names are full of, or a byte of some encoding this does not read.
+fn extends_a_name(byte: Option<u8>) -> bool {
+    byte.is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte >= 0x80)
 }
 
 /// Keep both ends of a log and say how much of the middle went.
@@ -267,8 +328,10 @@ pub struct Carried {
 ///
 /// # Errors
 ///
-/// Returns [`BundleFailure`] when a log cannot be written into the bundle. A log the run
-/// never kept is not an error: a mutant that was never executed has no output.
+/// Returns [`BundleFailure`] when a log cannot be read or cannot be written into the
+/// bundle. A log the run never kept is not an error: a mutant that was never executed has
+/// no output. One that is there and cannot be read is, because a bundle one log short with
+/// nothing saying so reads exactly like a run that never produced it.
 pub fn attach(
     evidence: &Evidence,
     staging: &Path,
@@ -281,21 +344,38 @@ pub fn attach(
         // The identifier was held to being 64 hexadecimal digits before anything built a
         // path out of it, which is what makes this join safe.
         let name = format!("{LOGS}/{}.txt", attachment.id);
-        let Ok(raw) = fs::read(from.join(format!("{}.txt", attachment.id))) else {
+        let Some(raw) = kept(&from.join(format!("{}.txt", attachment.id)))? else {
             continue;
         };
         let cleaned = clean(machine, &raw);
-        write(staging, &name, &cleaned.bytes)?;
-        attachment.log = Some(Attached {
-            path: name,
-            sha256: format!("{:x}", Sha256::digest(&cleaned.bytes)),
-        });
+        attachment.log = Some(carry(staging, &name, &cleaned)?);
         carried.truncated |= cleaned.truncated;
     }
-    if let Ok(raw) = fs::read(from.join(BASELINE_LOG)) {
+    if let Some(raw) = kept(&from.join(BASELINE_LOG))? {
         let cleaned = clean(machine, &raw);
-        write(staging, &format!("{LOGS}/{BASELINE_LOG}"), &cleaned.bytes)?;
+        carry(staging, &format!("{LOGS}/{BASELINE_LOG}"), &cleaned)?;
         carried.truncated |= cleaned.truncated;
     }
     Ok(carried)
+}
+
+/// One log the run kept, or nothing when it kept none.
+fn kept(path: &Path) -> Result<Option<Vec<u8>>, BundleFailure> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(BundleFailure::Unreadable {
+            path: path.to_path_buf(),
+            reason: err.to_string(),
+        }),
+    }
+}
+
+/// Write one cleaned log into the bundle and say what it hashes to.
+fn carry(staging: &Path, name: &str, cleaned: &Cleaned) -> Result<Attached, BundleFailure> {
+    write(staging, name, &cleaned.bytes)?;
+    Ok(Attached {
+        path: name.to_owned(),
+        sha256: format!("{:x}", Sha256::digest(&cleaned.bytes)),
+    })
 }
