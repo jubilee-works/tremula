@@ -333,8 +333,10 @@ fn the_bundle_admits_it_carries_the_backend_s_own_output() {
 }
 
 /// The document a reader is meant to open first has to be worth opening: the order to
-/// read the documents in, how to reproduce one bug, which suite to run, and the one
-/// thing the bundle cannot do.
+/// read the documents in, how to reproduce one mutation, which suite to run, and the one
+/// thing the bundle cannot do. Two dozen lines is the cap, which the commands earning a
+/// working directory each cost a couple of; a document longer than a screen is one nobody
+/// reads, and this is the only thing in a bundle that says what the rest of it is for.
 #[test]
 fn the_starting_document_says_how_to_read_the_bundle() {
     let fixture = RunFixture::of(&one_survivor());
@@ -355,11 +357,33 @@ fn the_starting_document_says_how_to_read_the_bundle() {
     let said = fs::read_to_string(written.path.join("START_HERE.md")).unwrap();
     assert_eq!(said, start_here::render(&written.index));
     assert!(
-        said.lines().count() <= 20,
+        said.lines().count() <= 24,
         "a starting document nobody reads is worth nothing: {} lines",
         said.lines().count()
     );
     insta::assert_snapshot!(said);
+}
+
+/// A selector is whatever was handed to `tremula run --tests`, and the document puts it
+/// into a command a shell reads back. One with a space or a quote of its own in it has to
+/// come out as the single argument it was.
+#[test]
+fn a_selector_a_shell_would_read_as_several_words_is_spelled_as_one() {
+    let fixture = RunFixture::of(&one_survivor());
+    let mut edited = fixture.document("report.json");
+    edited["run"]["tests"] = json!(["tests/it's a test.py"]);
+    fixture.rewrite("report.json", &edited);
+
+    let packaged = package(&fixture.asking()).unwrap();
+
+    let Packaged::Written(written) = packaged else {
+        panic!("no bundle");
+    };
+    let said = fs::read_to_string(written.path.join("START_HERE.md")).unwrap();
+    assert!(
+        said.contains(r"--tests 'tests/it'\''s a test.py'"),
+        "{said}"
+    );
 }
 
 /// The same document for the bundle a reader is most likely to get: no revision, no

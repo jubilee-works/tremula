@@ -4,21 +4,23 @@ expression: said
 ---
 # Start here
 
-This is the evidence one tremula run produced: which planted bugs the project's test suite failed to notice, and what it takes to make one of them fail a test.
+This is the evidence one tremula run produced: the planted mutations the project's test suite did not kill, and what it takes to make one of them fail a test. In every command below, substitute `<BUNDLE>` (this directory), `<CHECKOUT>` (a checkout of the project) and `<mutant-id>` (the mutation you are working on).
 
 Read in this order:
 
-1. `report.json` — every `verdicts` entry whose `verdict` is `survived` is a bug the suite missed.
-2. `manifest.json` — the same `mutant_id` under `mutants` gives the file, the byte span, and the exact text the mutation replaces.
-3. `patches/<mutant-id>.patch` — that change, ready for `git apply`. A `patch` of `null` in `bundle.json` means no file was written and `patch_error` says why; the diff itself is still in `results.json` under `entries[].diff`.
-4. `logs/<mutant-id>.txt` — what the suite printed under that mutation, with this machine's paths taken out; `logs/baseline.txt` is the same for the unmutated run.
-5. `triage.json` — what a second look made of each survivor, and whether any input was found that separates it from the original.
+1. `triage.json` — start at the `entries` classified `distinguished_at_function_level`: an input was found that told those mutations apart from the original, so they are the ones to spend time on first.
+2. `report.json` — every `verdicts` entry whose `verdict` is `survived` is a mutation the suite did not kill. That is a candidate gap rather than a proven one, since a mutation that changes nothing cannot be killed by any test.
+3. `manifest.json` — the same `mutant_id` under `mutants` gives the file, the byte span, and the exact text the mutation replaces.
+4. `patches/<mutant-id>.patch` — that change, ready for `git apply`. A `patch` of `null` in `bundle.json` means no file was written and `patch_error` says why; the diff itself is still in `results.json` under `entries[].diff`.
+5. `logs/<mutant-id>.txt` — what the suite printed under that mutation, with this machine's paths taken out; `logs/baseline.txt` is the same for the unmutated run.
 
-Reproduce one from a checkout of the project:
+Reproduce one:
 
-    git checkout 9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80
-    git apply patches/<mutant-id>.patch
+    git -C <CHECKOUT> checkout 9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80
+    git -C <CHECKOUT> apply <BUNDLE>/patches/<mutant-id>.patch
 
-Run the suite the run collected — `tests/test_ranges.py` — and write a test that fails while the patch is applied. Revert the patch, keep the test, and `tremula run --manifest manifest.json --project <checkout> --tests tests/test_ranges.py` will report that mutant as killed. That selection collected 4 tests before your test was added, so a checkout collecting far fewer is running something else.
+Write a test in `<CHECKOUT>` that fails while that patch is applied. Then take the patch back out — `git -C <CHECKOUT> apply -R <BUNDLE>/patches/<mutant-id>.patch` — keep the test, and run:
 
-What this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of every file in it but itself and this one.
+    tremula run --manifest <BUNDLE>/manifest.json --project <CHECKOUT> --tests 'tests/test_ranges.py'
+
+That reports the mutation as killed. The selection above collected 4 tests before your test was added, so a checkout collecting far fewer is running something else. What this bundle cannot do is run that suite: it carries the evidence and not the project. Every path it names is relative to `<BUNDLE>`, and `bundle.json` holds the SHA-256 of every file in it but itself and `START_HERE.md`.

@@ -1,9 +1,9 @@
 //! The whole hand-off, on a purpose-built project: a real run, a real bundle, and the
-//! bug in it reproduced somewhere the run never touched.
+//! mutation in it reproduced somewhere the run never touched.
 //!
 //! What this proves that the unit tests cannot is the one promise a bundle makes to
 //! somebody who was not there — "apply this patch to this revision and you have the
-//! bug". Keeping that promise honest means the repository has to exist *before* the
+//! mutation". Keeping that promise honest means the repository has to exist *before* the
 //! run: a run of a project that is not a checkout records no revision, and a
 //! repository created afterwards would have a commit the run never measured, so
 //! applying the patch to it would prove nothing about what the bundle claims.
@@ -12,10 +12,21 @@
 //! would succeed against the very sources the diff was made from, which is what the
 //! bundle already checked when it was built; a clone at the named revision is the
 //! situation the promise is actually about.
+//!
+//! # Why the commands are read out of the bundle
+//!
+//! Because the promise is made by `START_HERE.md` and not by this file. A test that built
+//! `git -C <checkout> apply <absolute path>` itself would prove that a patch applies while
+//! leaving the document free to tell a reader something that cannot be run — which is
+//! exactly what it did. So the commands are parsed out of the document the bundle
+//! published, the two names it asks the reader to substitute are substituted, and they are
+//! run from a directory that is neither the bundle nor the checkout: anything depending on
+//! a working directory the document never named fails here.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::{
+    ffi::OsStr,
     fs,
     path::{Path, PathBuf},
     process::{Command as Process, Output},
@@ -39,6 +50,15 @@ const REPLACEMENT: &str = "minutes > 60";
 
 /// The one test file the run is told to collect, so `suite.tests` has something in it.
 const TESTS: &str = "test_schedule.py";
+
+/// The test a reader of the bundle would write: it passes on the original and fails while
+/// the patch is applied, which is what the starting document asks for. Appended to the file
+/// the run collected, since a new file the selection does not name would not be run at all.
+const KILLING_TEST: &str = "
+
+def test_an_hour_long_meeting_needs_a_break() -> None:
+    assert needs_break(60)
+";
 
 /// A fixture tree copied somewhere it can be mutated, optionally as a checkout.
 struct Fixture {
@@ -199,6 +219,141 @@ fn copy_tree(from: &Path, into: &Path) {
     }
 }
 
+/// Run the mutant and package what the run left, holding both to what they claim: the
+/// revision the run recorded is the commit the project was at, and the bundle is of that
+/// run, that project, and that suite.
+fn measured_and_packaged(fixture: &Fixture, head: &str) -> BundleIndex {
+    let run = fixture.run();
+    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
+    let report = fixture.report();
+    assert_eq!(
+        report.run.observed_revision.as_deref(),
+        Some(head),
+        "the run recorded a revision that is not the one it measured"
+    );
+    assert!(!report.run.dirty, "the run's own directory made it dirty");
+    assert_eq!(report.run.tests, vec![TESTS]);
+    assert_eq!(report.verdicts.len(), 1);
+    assert_eq!(report.verdicts[0].verdict, Verdict::Survived);
+
+    let bundled = fixture.bundle(&[]);
+
+    assert_eq!(bundled.status.code(), Some(0), "{}", stderr(&bundled));
+    let index = fixture.index();
+    assert_eq!(index.run_id, report.run.run_id);
+    assert_eq!(index.project, PROJECT);
+    assert_eq!(index.base.revision.as_deref(), Some(head));
+    assert!(index.base.reproducible_from_revision);
+    assert_eq!(index.suite.tests, vec![TESTS]);
+    assert_eq!(index.attachments.len(), 1);
+    assert!(
+        index.attachments[0].patch.is_some(),
+        "a survivor's patch is what the bundle exists for"
+    );
+    index
+}
+
+/// A clone of the project: a checkout the run never touched, which is the situation the
+/// bundle's promise is about. Nothing else is done to it — the document's own commands put
+/// it at the revision and apply the patch.
+fn cloned(fixture: &Fixture) -> PathBuf {
+    let checkout = fixture.workspace.path().join("elsewhere");
+    let done = Process::new("git")
+        .arg("clone")
+        .arg("--quiet")
+        .arg(fixture.project())
+        .arg(&checkout)
+        .output()
+        .unwrap();
+    assert!(done.status.success(), "{}", stderr(&done));
+    checkout
+}
+
+/// Every command the starting document sets out in a block of its own, in order.
+fn commands_in(document: &str) -> Vec<String> {
+    document
+        .lines()
+        .filter_map(|line| line.strip_prefix("    "))
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The one command the document gives inside a sentence rather than in a block: how to
+/// take a patch back out again.
+fn undoing(document: &str) -> String {
+    document
+        .split('`')
+        .find(|span| span.starts_with("git ") && span.contains("apply -R"))
+        .map(str::to_owned)
+        .expect("the document says to take the patch back out and does not say how")
+}
+
+/// One of the document's commands with the names it asks the reader to substitute
+/// substituted, and nothing else changed.
+fn substituted(command: &str, bundle: &Path, checkout: &Path, mutant_id: &str) -> String {
+    command
+        .replace("<BUNDLE>", &bundle.display().to_string())
+        .replace("<CHECKOUT>", &checkout.display().to_string())
+        .replace("<mutant-id>", mutant_id)
+}
+
+/// Run one of the document's commands, from a directory that is neither the bundle nor the
+/// checkout: a command that depended on a working directory the document never named would
+/// fail here, which is the whole point of running them this way.
+fn as_written(command: &str, from: &Path, extra: &[&OsStr]) -> Output {
+    let words = words(command);
+    let (program, arguments) = words
+        .split_first()
+        .unwrap_or_else(|| panic!("no command in {command:?}"));
+    // The document names the command the way a reader has it on their path; this test has
+    // to run the one it just built.
+    let program = if program == "tremula" {
+        assert_cmd::cargo::cargo_bin("tremula")
+    } else {
+        PathBuf::from(program)
+    };
+    Process::new(program)
+        .args(arguments)
+        .args(extra)
+        .current_dir(from)
+        .output()
+        .unwrap()
+}
+
+/// The words of a command, with a quoted run kept together, the way a shell reads it.
+fn words(command: &str) -> Vec<String> {
+    let mut words = Vec::new();
+    let mut word = String::new();
+    let mut quoted = false;
+    for character in command.chars() {
+        match character {
+            '\'' => quoted = !quoted,
+            ' ' if !quoted => {
+                if !word.is_empty() {
+                    words.push(std::mem::take(&mut word));
+                }
+            }
+            _ => word.push(character),
+        }
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    words
+}
+
+/// Run the suite the way the project's own tests are run, to see one test fail.
+fn pytest(suite: &Path, from: &Path) -> Output {
+    Process::new(interpreter())
+        .args(["-m", "pytest", "-q"])
+        .arg(suite)
+        .current_dir(from)
+        .output()
+        .unwrap()
+}
+
 /// Where `needle` starts inside `haystack`.
 fn find(haystack: &[u8], needle: &[u8]) -> usize {
     haystack
@@ -220,11 +375,12 @@ fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
-/// The promise, kept: the revision the run recorded is the commit the project was at,
-/// and the patch the bundle carries turns a clone of that commit into what the manifest
-/// says the mutation is.
+/// The promise, kept by doing what the bundle says: the revision the run recorded is the
+/// commit the project was at, the document's own commands turn a clone of that commit into
+/// what the manifest says the mutation is, and the test the document asks for turns the
+/// survivor into a kill.
 #[test]
-fn a_bundle_reproduces_its_bug_in_a_checkout_of_the_revision_it_names() {
+fn following_the_starting_document_reproduces_the_mutation_and_then_kills_it() {
     let fixture = Fixture::copy();
     let span = fixture.with_manifest();
     // Before the run, so that what the run records is a commit that really holds the
@@ -232,68 +388,86 @@ fn a_bundle_reproduces_its_bug_in_a_checkout_of_the_revision_it_names() {
     let head = fixture.commit_everything();
     assert_eq!(head.len(), 40, "{head}");
 
-    let run = fixture.run();
-    assert_eq!(run.status.code(), Some(1), "{}", stderr(&run));
-    let report = fixture.report();
+    let index = measured_and_packaged(&fixture, &head);
+    let mutant_id = index.attachments[0].id.clone();
+
+    let checkout = cloned(&fixture);
+    let document = fs::read_to_string(fixture.bundled().join("START_HERE.md")).unwrap();
+    let steps = commands_in(&document);
     assert_eq!(
-        report.run.observed_revision.as_deref(),
-        Some(head.as_str()),
-        "the run recorded a revision that is not the one it measured"
+        steps.len(),
+        3,
+        "the document gives commands this test does not account for: {steps:?}"
     );
-    assert!(!report.run.dirty, "the run's own directory made it dirty");
-    assert_eq!(report.run.tests, vec![TESTS]);
-    assert_eq!(report.verdicts.len(), 1);
-    assert_eq!(report.verdicts[0].verdict, Verdict::Survived);
+    let substituting =
+        |command: &str| substituted(command, &fixture.bundled(), &checkout, &mutant_id);
 
-    let bundled = fixture.bundle(&[]);
+    // The checkout, then the patch: the two steps that are the bundle's whole promise.
+    for step in &steps[..2] {
+        let done = as_written(&substituting(step), fixture.workspace.path(), &[]);
+        assert!(done.status.success(), "{step}: {}", stderr(&done));
+    }
 
-    assert_eq!(bundled.status.code(), Some(0), "{}", stderr(&bundled));
-    let index = fixture.index();
-    assert_eq!(index.run_id, report.run.run_id);
-    assert_eq!(index.project, PROJECT);
-    assert_eq!(index.base.revision.as_deref(), Some(head.as_str()));
-    assert!(index.base.reproducible_from_revision);
-    assert_eq!(index.suite.tests, vec![TESTS]);
-    assert_eq!(index.attachments.len(), 1);
-    let patch = index.attachments[0]
-        .patch
-        .as_ref()
-        .expect("a survivor's patch is what the bundle exists for");
-
-    // A clone of the project is a checkout the run never touched, which is the
-    // situation the bundle's promise is about.
-    let elsewhere = fixture.workspace.path().join("elsewhere");
-    let cloned = Process::new("git")
-        .arg("clone")
-        .arg("--quiet")
-        .arg(fixture.project())
-        .arg(&elsewhere)
-        .output()
-        .unwrap();
-    assert!(cloned.status.success(), "{}", stderr(&cloned));
-    let out = git(&elsewhere, &["checkout", "--quiet", &head]);
-    assert!(out.status.success(), "{}", stderr(&out));
-    let before = fs::read(elsewhere.join(FILE)).unwrap();
-
-    let applied = git(
-        &elsewhere,
-        &[
-            "apply",
-            &fixture.bundled().join(&patch.path).display().to_string(),
-        ],
-    );
-
-    assert!(applied.status.success(), "{}", stderr(&applied));
     // What the manifest says the mutation is, done to the bytes of that revision.
+    let at_the_revision = git(&checkout, &["show", &format!("{head}:{FILE}")]);
+    assert!(
+        at_the_revision.status.success(),
+        "{}",
+        stderr(&at_the_revision)
+    );
     let mutant = &fixture.manifest_document().mutants[0];
-    let mut expected = before.clone();
+    let mut expected = at_the_revision.stdout.clone();
     let start = usize::try_from(span.start_byte).unwrap();
     let end = usize::try_from(span.end_byte).unwrap();
     expected.splice(start..end, mutant.replacement.bytes());
     assert_eq!(
-        fs::read(elsewhere.join(FILE)).unwrap(),
+        fs::read(checkout.join(FILE)).unwrap(),
         expected,
-        "the patch did something other than what the manifest describes"
+        "the document's commands did something other than what the manifest describes"
+    );
+
+    // And the rest of what the document asks for: a test that fails while the patch is
+    // applied, the patch taken back out, and the run it spells out.
+    let suite = checkout.join(TESTS);
+    let mut with_a_test = fs::read_to_string(&suite).unwrap();
+    with_a_test.push_str(KILLING_TEST);
+    fs::write(&suite, &with_a_test).unwrap();
+    let failing = pytest(&suite, &checkout);
+    assert!(
+        !failing.status.success(),
+        "the test does not fail while the patch is applied: {}",
+        stdout(&failing)
+    );
+
+    let reverting = substituting(&undoing(&document));
+    let undone = as_written(&reverting, fixture.workspace.path(), &[]);
+    assert!(undone.status.success(), "{reverting}: {}", stderr(&undone));
+    let passing = pytest(&suite, &checkout);
+    assert!(
+        passing.status.success(),
+        "the test does not pass on the project as it is: {}",
+        stdout(&passing)
+    );
+    let interpreter = interpreter().into_os_string();
+    let killing = as_written(
+        &substituting(&steps[2]),
+        fixture.workspace.path(),
+        // The one thing the document cannot know: which interpreter the language pack is
+        // installed in. Everything else in the command is the document's own.
+        &["--python".as_ref(), interpreter.as_os_str()],
+    );
+
+    assert_eq!(killing.status.code(), Some(0), "{}", stderr(&killing));
+    let judged: Report = read(
+        &fs::canonicalize(checkout.join(".tremula").join("runs").join("latest"))
+            .unwrap()
+            .join("report.json"),
+    );
+    assert_eq!(judged.verdicts.len(), 1);
+    assert_eq!(
+        judged.verdicts[0].verdict,
+        Verdict::Killed,
+        "the test the document asked for did not kill the mutation"
     );
 }
 
