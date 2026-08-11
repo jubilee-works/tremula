@@ -11,4 +11,4 @@ baseline: 14 passed in 1.2s ✓ (collected=14)
 score: 0/1 killed (0 timeout) · 1 survived · 0 excluded
 note: SURVIVED = not killed by the existing suite (execution/coverage unverified)
 exit 1 (survived present)
-next: `tremula triage --model <model>` sorts the survivors; `tremula bundle` packages this run's evidence for somebody else
+next: 1. `tremula triage --model <model>` sorts the survivors, then 2. `tremula bundle` packages this run's evidence for somebody else — in that order, so the triage travels with it

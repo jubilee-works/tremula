@@ -94,7 +94,7 @@ baseline: 3 passed in 0.8s ✓ (collected=3)
 score: 1/2 killed (0 timeout) · 1 survived · 0 excluded
 note: SURVIVED = not killed by the existing suite (execution/coverage unverified)
 exit 1 (survived present)
-next: `tremula triage --model <model>` sorts the survivors; `tremula bundle` packages this run's evidence for somebody else
+next: 1. `tremula triage --model <model>` sorts the survivors, then 2. `tremula bundle` packages this run's evidence for somebody else — in that order, so the triage travels with it
 run_dir=/path/to/project/.tremula/runs/20260809T041500Z-3b1f8c
 ```
 
@@ -207,8 +207,12 @@ says which order to read the documents in and how to reproduce one bug; it is th
 file to point a coding agent at.
 
 Run it after `triage` rather than before, so `triage.json` travels with the rest. An
-existing path is never written over, and the whole directory is assembled beside
-where it goes and renamed into place, so a failure leaves nothing half-built.
+existing path is never written over: the directory is assembled beside where it goes
+under a name belonging to that one attempt, and the output path is then taken by
+creating it — one operation the filesystem either performs or refuses, so two bundles
+asked for at one path cannot both believe they have it. The finished directory is
+moved onto the empty one that claim made, so the published path is complete or absent
+and never half-built.
 
 Logs are cleaned before they travel: your home directory, the project root, the run
 directory and the temporary directory all come out, in both the spelling they were
@@ -221,8 +225,9 @@ uploading a bundle anywhere.
 
 Exit `0` when it was packaged, `2` when it could not be — including when a
 survivor's patch does not apply, since reproducing a survivor is the point. The
-bundle is still written in that case. A run that tested nothing exits `0` and
-writes no bundle.
+bundle is still written in that case, and the console says it is kept and not
+complete for reproduction rather than telling you to send it. A run that tested
+nothing exits `0` and writes no bundle.
 
 **A manifest is code you are about to execute.** Every `replacement` runs as part
 of your test suite, so only run manifests you trust.

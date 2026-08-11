@@ -8,7 +8,7 @@
 use tremula_contracts::bundle::BundleIndex;
 
 use crate::{
-    bundle::{START_HERE, Written},
+    bundle::{INDEX, START_HERE, Written, collect::RESULTS},
     console::SHORT_ID_CHARS,
 };
 
@@ -54,15 +54,28 @@ pub fn render_bundle(written: &Written) -> String {
         }
     }
     lines.push(format!("wrote {}", written.path.display()));
-    lines.push(format!(
-        "next: hand this directory over; `{START_HERE}` in it says how to read it"
-    ));
+    lines.push(what_next(written));
     lines.push(format!(
         "exit {} ({})",
         if written.unusable.is_empty() { 0 } else { 2 },
         bundle_exit_reason(written)
     ));
     lines.join("\n")
+}
+
+/// What to do with the directory that was just written.
+///
+/// Not "hand it over" when a survivor's patch was refused. Reproducing a survivor is the
+/// one thing the reader of a bundle is there to do, and a bundle that cannot let them is
+/// one to look into rather than one to send — the evidence in it is real, and saying so
+/// beats both pretending it is finished and deleting it.
+fn what_next(written: &Written) -> String {
+    if written.unusable.is_empty() {
+        return format!("next: hand this directory over; `{START_HERE}` in it says how to read it");
+    }
+    format!(
+        "next: this bundle is kept and is not complete for reproduction — read `patch_error` in `{INDEX}` for each survivor above, and the diff it is about under `entries[].diff` in `{RESULTS}`"
+    )
 }
 
 /// Why a bundle exits the way it does.

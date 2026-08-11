@@ -252,6 +252,12 @@ impl RunFixture {
         self.workspace.path().join(name)
     }
 
+    /// The directory the project and everything beside it are in, for the tests that run
+    /// the command from somewhere and pass a path relative to it.
+    pub fn workspace(&self) -> &Path {
+        self.workspace.path()
+    }
+
     /// Where a bundle goes when nobody says.
     pub fn default_out(&self) -> PathBuf {
         self.project()

@@ -11,12 +11,32 @@
 
 use std::fs;
 
+use assert_cmd::Command;
 use serde_json::json;
 use tremula::bundle::{exit_status, package};
 
 mod bundle_fixture;
 
 use bundle_fixture::{FILE, PROJECT, RunFixture, one_survivor, report, triage};
+
+/// Every staging name beside `out`, so a test can say which ones a bundle left there.
+fn staged_beside(out: &std::path::Path) -> Vec<String> {
+    let Some(parent) = out.parent() else {
+        return Vec::new();
+    };
+    let Some(name) = out.file_name().and_then(std::ffi::OsStr::to_str) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = fs::read_dir(parent)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| entry.file_name().to_str().map(str::to_owned))
+        .filter(|found| found.starts_with(&format!("{name}.part")))
+        .collect();
+    found.sort();
+    found
+}
 
 /// The default `--run` is the `latest` link, and a link's own name is not a run
 /// identifier. Comparing it against the documents would make every default
@@ -71,8 +91,57 @@ fn a_failure_leaves_no_bundle_and_no_staging_directory() {
     );
     assert!(!out.exists(), "the output path was left behind");
     assert!(
-        !fixture.beside("into").join("bundle.part").exists(),
-        "the staging directory was left behind"
+        staged_beside(&out).is_empty(),
+        "a staging directory was left"
+    );
+}
+
+/// Everything a staging directory holds belongs to the one attempt that is assembling it,
+/// so its name has to belong to that attempt too. A name two attempts share is a name each
+/// of them takes away from the other.
+#[test]
+fn a_staging_directory_another_attempt_is_using_is_left_alone() {
+    let fixture = RunFixture::of(&one_survivor());
+    let out = fixture.beside("bundle");
+    let mut asking = fixture.asking();
+    asking.out = Some(out.clone());
+    let theirs = fixture.beside("bundle.part");
+    fs::create_dir(&theirs).unwrap();
+    fs::write(theirs.join("half-written.json"), "{}\n").unwrap();
+
+    let code = exit_status(&asking);
+
+    assert_eq!(code, 0);
+    assert!(out.join("bundle.json").is_file(), "no bundle was published");
+    assert!(
+        theirs.join("half-written.json").is_file(),
+        "another attempt's work was deleted"
+    );
+    assert_eq!(
+        staged_beside(&out),
+        vec!["bundle.part".to_owned()],
+        "this attempt left its own staging directory behind"
+    );
+}
+
+/// `--out` pointing at a link with nothing behind it. Asking whether something is there
+/// follows the link and answers about the target, so a look followed by a move takes
+/// "nothing is there" for permission — and the move then writes through, or fails, in terms
+/// of the target rather than of the path that was asked for. The claim is made on the path.
+#[test]
+fn a_link_standing_at_the_output_path_is_refused_rather_than_written_through() {
+    let fixture = RunFixture::of(&one_survivor());
+    let out = fixture.beside("bundle-link");
+    std::os::unix::fs::symlink(fixture.beside("nowhere"), &out).unwrap();
+    let mut asking = fixture.asking();
+    asking.out = Some(out.clone());
+
+    let failure = package(&asking).unwrap_err();
+
+    assert!(failure.to_string().contains("already exists"), "{failure}");
+    assert!(
+        fs::symlink_metadata(&out).unwrap().file_type().is_symlink(),
+        "the link at the output path was replaced"
     );
 }
 
@@ -312,6 +381,34 @@ fn a_manifest_that_is_not_the_one_the_run_ran_is_refused() {
     assert!(said.contains("another run's manifest"), "{said}");
     assert!(said.contains(&fixture.run_id), "{said}");
     assert!(!fixture.default_out().exists());
+}
+
+/// A failure names the path the caller gave it. Everything is assembled through an
+/// absolute path, because git is handed one; a complaint about `/private/var/...` when the
+/// caller typed `into/bundle` is a complaint about somewhere they have never been.
+#[test]
+fn a_failure_names_the_path_the_caller_asked_for() {
+    let fixture = RunFixture::of(&one_survivor());
+    // A file where a directory would have to go, so the staging directory cannot be made.
+    fs::write(fixture.beside("in-the-way"), "not a directory\n").unwrap();
+
+    let done = Command::cargo_bin("tremula")
+        .unwrap()
+        .current_dir(fixture.workspace())
+        .args(["bundle", "--project", PROJECT, "--out", "in-the-way/bundle"])
+        .output()
+        .unwrap();
+
+    assert_eq!(done.status.code(), Some(2));
+    let said = String::from_utf8_lossy(&done.stderr).into_owned();
+    assert!(
+        said.contains("cannot write `in-the-way/bundle.part"),
+        "{said}"
+    );
+    assert!(
+        !said.contains(&fixture.workspace().display().to_string()),
+        "the message names a path the caller never gave: {said}"
+    );
 }
 
 /// There is no such run at all.

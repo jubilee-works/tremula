@@ -82,6 +82,10 @@ pub fn render(report: &Report, baseline: Option<&Baseline>) -> String {
 /// needs `triage` is the one who just got a list of survivors they have no order to
 /// read in. Nothing is suggested for a run that tested nothing, since nothing
 /// happened to follow up.
+///
+/// They are numbered where both apply, because they are not alternatives: a bundle built
+/// before a triage is a bundle with `triage.json` missing from it, and this line is the
+/// only place a reader would find that out in time.
 fn what_next(score: Score) -> Option<String> {
     if score.total == 0 {
         return None;
@@ -89,7 +93,7 @@ fn what_next(score: Score) -> Option<String> {
     let bundling = "`tremula bundle` packages this run's evidence for somebody else";
     if score.survived > 0 {
         return Some(format!(
-            "next: `tremula triage --model <model>` sorts the survivors; {bundling}"
+            "next: 1. `tremula triage --model <model>` sorts the survivors, then 2. {bundling} — in that order, so the triage travels with it"
         ));
     }
     Some(format!("next: {bundling}"))

@@ -170,6 +170,24 @@ fn a_survivor_renders_the_reference_report() {
     insta::assert_snapshot!(render(&report, Some(&baseline)));
 }
 
+/// The two commands that follow a run with survivors in it are not two things to choose
+/// between. A bundle built before a triage is a bundle with no `triage.json` in it, and a
+/// run that offered them side by side left a reader to find that out afterwards.
+#[test]
+fn what_to_do_after_a_run_with_survivors_says_which_command_comes_first() {
+    let (report, baseline) = judged(&[Outcome::Survived, Outcome::Killed]);
+
+    let said = render(&report, Some(&baseline));
+
+    let next = said.lines().last().unwrap_or_default();
+    assert!(next.starts_with("next:"), "{said}");
+    let triage = next.find("tremula triage").unwrap_or(usize::MAX);
+    let bundle = next.find("tremula bundle").unwrap_or(usize::MAX);
+    assert!(triage < bundle, "{next}");
+    assert!(next.contains("1."), "the order is not spelled out: {next}");
+    assert!(next.contains("2."), "the order is not spelled out: {next}");
+}
+
 #[test]
 fn a_timeout_adds_a_warning_above_the_exit_line() {
     let (report, baseline) = judged(&[Outcome::Killed, Outcome::TimedOut]);
@@ -230,6 +248,27 @@ fn a_bundle_whose_only_log_is_the_unmutated_run_s_still_counts_it() {
     let said = render_bundle(&written);
 
     assert!(said.contains("logs: 1 file(s)"), "{said}");
+}
+
+/// A bundle whose survivor has no patch is not a directory to hand over: the one thing
+/// its reader would do with it is the thing it cannot do. Telling somebody to send it
+/// anyway sends a package that fails at what it is for.
+#[test]
+fn a_bundle_that_cannot_reproduce_a_survivor_is_not_offered_for_handing_over() {
+    let mut index: BundleIndex = example("bundle/with-triage.json");
+    index.exposure.patch_context = true;
+    let unusable = vec![index.attachments[1].id.clone()];
+    let written = Written {
+        path: PathBuf::from("/somewhere/tremula-bundle-20260810T042611Z-3e6e2e"),
+        index,
+        unusable,
+    };
+
+    let said = render_bundle(&written);
+
+    assert!(!said.contains("hand this directory over"), "{said}");
+    assert!(said.contains("patch_error"), "{said}");
+    assert!(said.contains("results.json"), "{said}");
 }
 
 /// The same bundle with a survivor nobody can reproduce from it. The line is an error

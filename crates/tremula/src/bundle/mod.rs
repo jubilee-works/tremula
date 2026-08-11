@@ -19,14 +19,12 @@
 //!
 //! # Why it is assembled somewhere else first
 //!
-//! Everything is written into `<out>.part` and renamed into place once every hash
-//! has been checked against the bytes on disk. A bundle is a thing that gets copied
-//! and sent, and a half-written one looks exactly like a whole one; the rename is
-//! what makes the published path appear complete or not at all. A failure anywhere
-//! leaves no final path and no staging directory either.
+//! Everything is written into a staging directory of this attempt's own and moved into
+//! place once every hash has been checked against the bytes on disk, onto a destination
+//! claimed by creating it. [`publish`] is where that is set out, and why each step is the
+//! step it is. A failure anywhere leaves no final path and no staging directory either.
 
 use std::{
-    ffi::OsString,
     fs,
     path::{Path, PathBuf},
     process::ExitCode,
@@ -43,11 +41,13 @@ use crate::{console, run_dir::TREMULA_DIR};
 pub mod collect;
 pub mod failures;
 pub mod logs;
+pub mod publish;
 pub mod start_here;
 
 use collect::{BASELINE, Evidence, MANIFEST, REPORT, RESULTS, Read, TRIAGE};
 use failures::BundleFailure;
 use logs::Machine;
+use publish::Staging;
 
 /// What a bundle exits with when it could not be written. The same code every
 /// other operational failure in this tool reports.
@@ -67,9 +67,6 @@ pub const START_HERE: &str = "START_HERE.md";
 
 /// What a bundle's directory is called when the caller does not say.
 const OUT_PREFIX: &str = "tremula-bundle-";
-
-/// The name everything is assembled under before it is published.
-const STAGING_SUFFIX: &str = ".part";
 
 /// What `tremula bundle` was asked to do.
 #[derive(Debug, clap::Args)]
@@ -172,15 +169,9 @@ pub fn package(args: &BundleArgs) -> Result<Packaged, BundleFailure> {
         args.project
             .join(format!("{OUT_PREFIX}{}", evidence.run_id))
     });
-    if out.exists() {
-        return Err(BundleFailure::BundleExists { path: out });
-    }
-    // Absolute, because `git apply --check` is run with the snapshot as its working
-    // directory and is handed the path of the patch to read.
-    let staging = absolute(&staging_beside(&out))?;
-    clear(&staging)?;
-    let assembled = assemble(args, &evidence, &staging)
-        .and_then(|written| publish(&staging, &out).map(|()| written));
+    let staging = Staging::beside(&out)?;
+    let assembled = assemble(args, &evidence, staging.path())
+        .and_then(|written| staging.publish(&out).map(|()| written));
     match assembled {
         Ok((index, unusable)) => Ok(Packaged::Written(Box::new(Written {
             path: out,
@@ -188,7 +179,8 @@ pub fn package(args: &BundleArgs) -> Result<Packaged, BundleFailure> {
             unusable,
         }))),
         Err(failure) => {
-            drop(fs::remove_dir_all(&staging));
+            let failure = staging.as_the_caller_said(failure);
+            staging.discard();
             Err(failure)
         }
     }
@@ -199,31 +191,6 @@ fn where_to_look(args: &BundleArgs) -> PathBuf {
     args.run
         .clone()
         .unwrap_or_else(|| args.project.join(TREMULA_DIR).join(RUNS_DIR).join(LATEST))
-}
-
-/// Where a bundle is assembled: a sibling of where it will end up, so the rename
-/// that publishes it stays on one filesystem.
-fn staging_beside(out: &Path) -> PathBuf {
-    let mut name = OsString::from(out.as_os_str());
-    name.push(STAGING_SUFFIX);
-    PathBuf::from(name)
-}
-
-/// Take away whatever a previous attempt left under the staging name.
-///
-/// It is never the published bundle — that name is the output path without the
-/// suffix — so there is nothing here a reader could be relying on, and refusing to
-/// start because an interrupted run left one behind would need a person to delete a
-/// directory they did not create.
-fn clear(staging: &Path) -> Result<(), BundleFailure> {
-    let unwritable = |reason: String| BundleFailure::Unwritable {
-        path: staging.to_path_buf(),
-        reason,
-    };
-    if staging.exists() {
-        fs::remove_dir_all(staging).map_err(|err| unwritable(err.to_string()))?;
-    }
-    fs::create_dir_all(staging).map_err(|err| unwritable(err.to_string()))
 }
 
 /// Put everything into the staging directory, and check what came out.
@@ -373,28 +340,4 @@ fn as_the_index_says(staging: &Path, index: &BundleIndex) -> Result<(), BundleFa
         }
     }
     Ok(())
-}
-
-/// Move the finished bundle to where it was asked for.
-fn publish(staging: &Path, out: &Path) -> Result<(), BundleFailure> {
-    if let Some(parent) = out.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent).map_err(|err| BundleFailure::Unwritable {
-            path: parent.to_path_buf(),
-            reason: err.to_string(),
-        })?;
-    }
-    fs::rename(staging, out).map_err(|err| BundleFailure::Unwritable {
-        path: out.to_path_buf(),
-        reason: err.to_string(),
-    })
-}
-
-/// A path that survives a change of working directory.
-fn absolute(path: &Path) -> Result<PathBuf, BundleFailure> {
-    std::path::absolute(path).map_err(|err| BundleFailure::PathUnresolvable {
-        path: path.to_path_buf(),
-        reason: err.to_string(),
-    })
 }

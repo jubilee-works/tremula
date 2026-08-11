@@ -12,5 +12,5 @@ tremula bundle · run 20260810T042611Z-3e6e2e · project: sample_project
 
 error: no patch for 1f3a9d2e — git apply --check refused it: error: limits.py: does not match index
 wrote /somewhere/tremula-bundle-20260810T042611Z-3e6e2e
-next: hand this directory over; `START_HERE.md` in it says how to read it
+next: this bundle is kept and is not complete for reproduction — read `patch_error` in `bundle.json` for each survivor above, and the diff it is about under `entries[].diff` in `results.json`
 exit 2 (1 survivor(s) have no patch that applies)
