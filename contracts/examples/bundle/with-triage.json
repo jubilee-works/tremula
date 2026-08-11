@@ -1,0 +1,66 @@
+{
+  "schema_version": "0.1",
+  "run_id": "20260810T042611Z-3e6e2e",
+  "tremula_version": "0.1.0",
+  "project": "sample_project",
+  "documents": {
+    "report": {
+      "path": "report.json",
+      "sha256": "708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f"
+    },
+    "manifest": {
+      "path": "manifest.json",
+      "sha256": "8192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70"
+    },
+    "results": {
+      "path": "results.json",
+      "sha256": "92a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7081"
+    },
+    "baseline": {
+      "path": "baseline.json",
+      "sha256": "a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192"
+    },
+    "triage": {
+      "path": "triage.json",
+      "sha256": "b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3"
+    }
+  },
+  "base": {
+    "revision": "9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80",
+    "dirty": false,
+    "reproducible_from_revision": true
+  },
+  "suite": {
+    "tests": ["tests/test_ranges.py", "tests/test_gaps.py"],
+    "collected": 14
+  },
+  "attachments": [
+    {
+      "id": "0e2f8c1d5a4b6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
+      "patch": {
+        "path": "patches/0e2f8c1d5a4b6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7.patch",
+        "sha256": "c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4"
+      },
+      "log": {
+        "path": "logs/0e2f8c1d5a4b6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7.txt",
+        "sha256": "d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5"
+      }
+    },
+    {
+      "id": "1f3a9d2e6b5c7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708",
+      "patch": null,
+      "log": {
+        "path": "logs/1f3a9d2e6b5c7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708.txt",
+        "sha256": "e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6"
+      },
+      "patch_error": "git apply --check refused it: error: limits.py: does not match index"
+    }
+  ],
+  "exposure": {
+    "patch_context": true,
+    "standalone_logs": true,
+    "backend_raw_output": true,
+    "absolute_paths": true
+  },
+  "logs_truncated": true
+}

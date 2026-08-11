@@ -9,6 +9,7 @@ use schemars::{JsonSchema, schema_for};
 use serde::{Serialize, de::DeserializeOwned};
 use tremula_contracts::{
     baseline::Baseline,
+    bundle::BundleIndex,
     capabilities::Capabilities,
     manifest::Manifest,
     pack_error::{PackError, Stage},
@@ -92,6 +93,49 @@ fn valid_examples_are_accepted() {
     accepts::<Suppressions>(
         "suppressions/two-decisions.json",
         "suppressions.schema.json",
+    );
+    accepts::<BundleIndex>("bundle/minimal.json", "bundle.schema.json");
+    accepts::<BundleIndex>("bundle/with-triage.json", "bundle.schema.json");
+}
+
+/// A bundle index is read by whoever the evidence was handed to, and that consumer
+/// is the furthest from this repository of any: it has to be able to read a bundle
+/// written by a later tremula than the one it knows.
+#[test]
+fn unknown_fields_in_a_bundle_index_are_ignored() {
+    let mut instance = read_json("examples/bundle/with-triage.json");
+    instance["future_field"] = serde_json::json!(42);
+    instance["documents"]["report"]["future_field"] = serde_json::json!("a signature");
+    instance["attachments"][0]["future_field"] = serde_json::json!(true);
+    instance["exposure"]["future_field"] = serde_json::json!("a kind of content named later");
+    serde_json::from_value::<BundleIndex>(instance)
+        .expect("additive fields must not break existing consumers");
+}
+
+/// What a bundle leaves out and what it says is empty have to mean the same thing,
+/// in both directions: a consumer that finds no `triage` key must read the same
+/// bundle as one that finds an explicit `null`, and re-serializing must not invent
+/// a key that says "there is no triage" where the original said nothing.
+#[test]
+fn an_absent_optional_in_a_bundle_index_reads_as_an_empty_one() {
+    let listed: BundleIndex =
+        serde_json::from_value(read_json("examples/bundle/minimal.json")).unwrap();
+    assert!(listed.documents.triage.is_none());
+    assert!(listed.suite.tests.is_empty());
+    assert!(listed.attachments[0].patch_error.is_none());
+
+    let mut spelled_out = read_json("examples/bundle/minimal.json");
+    spelled_out["documents"]["triage"] = serde_json::Value::Null;
+    spelled_out["suite"]["tests"] = serde_json::json!([]);
+    spelled_out["attachments"][0]["patch_error"] = serde_json::Value::Null;
+    let same: BundleIndex = serde_json::from_value(spelled_out).unwrap();
+    assert_eq!(listed, same, "an explicit null must read as an absent key");
+
+    let round_tripped = serde_json::to_value(&same).unwrap();
+    assert_eq!(
+        round_tripped,
+        read_json("examples/bundle/minimal.json"),
+        "an empty optional must be written as an absent key, not as a null"
     );
 }
 

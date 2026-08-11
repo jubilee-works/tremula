@@ -1,0 +1,52 @@
+{
+  "schema_version": "0.1",
+  "run_id": "20260810T090000Z-abc123",
+  "tremula_version": "0.1.0",
+  "project": "sample_project",
+  "documents": {
+    "report": {
+      "path": "report.json",
+      "sha256": "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809"
+    },
+    "manifest": {
+      "path": "manifest.json",
+      "sha256": "2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a"
+    },
+    "results": {
+      "path": "results.json",
+      "sha256": "3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b"
+    },
+    "baseline": {
+      "path": "baseline.json",
+      "sha256": "4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c"
+    }
+  },
+  "base": {
+    "revision": null,
+    "dirty": false,
+    "reproducible_from_revision": false
+  },
+  "suite": {
+    "collected": 4
+  },
+  "attachments": [
+    {
+      "id": "0e2f8c1d5a4b6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",
+      "patch": {
+        "path": "patches/0e2f8c1d5a4b6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7.patch",
+        "sha256": "5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d"
+      },
+      "log": {
+        "path": "logs/0e2f8c1d5a4b6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7.txt",
+        "sha256": "6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e"
+      }
+    }
+  ],
+  "exposure": {
+    "patch_context": true,
+    "standalone_logs": true,
+    "backend_raw_output": true,
+    "absolute_paths": true
+  },
+  "logs_truncated": false
+}

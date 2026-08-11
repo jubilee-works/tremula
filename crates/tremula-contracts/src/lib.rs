@@ -24,6 +24,7 @@
 //! therefore omit empty values.
 
 pub mod baseline;
+pub mod bundle;
 pub mod capabilities;
 pub mod manifest;
 mod open_enum;

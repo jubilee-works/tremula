@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BundleIndex",
+  "description": "Everything a bundle carries, and where in it each thing is.",
+  "type": "object",
+  "properties": {
+    "attachments": {
+      "description": "One entry per mutant in the run, in the report's order.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Attachment"
+      }
+    },
+    "base": {
+      "description": "The checkout a patch applies to.",
+      "$ref": "#/$defs/Base"
+    },
+    "documents": {
+      "description": "The contract documents, each with the hash of the bytes as packaged.",
+      "$ref": "#/$defs/Documents"
+    },
+    "exposure": {
+      "description": "What kinds of content a reader is about to distribute.",
+      "$ref": "#/$defs/Exposure"
+    },
+    "logs_truncated": {
+      "description": "Whether any log in the bundle was shortened. Said once for the bundle,\nbecause the question a reader has is whether to trust the logs at all.",
+      "type": "boolean"
+    },
+    "project": {
+      "description": "The project's directory name, and only its name. A bundle travels, and the\npath it was built at names somebody's machine rather than the project.",
+      "type": "string"
+    },
+    "run_id": {
+      "description": "The run whose evidence this is, shared with every document in the bundle.",
+      "type": "string"
+    },
+    "schema_version": {
+      "description": "Contract version of this document.",
+      "type": "string"
+    },
+    "suite": {
+      "description": "What suite the run measured, in the terms needed to measure it again.",
+      "$ref": "#/$defs/Suite"
+    },
+    "tremula_version": {
+      "description": "Version of the tremula core that packaged it.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "tremula_version",
+    "project",
+    "documents",
+    "base",
+    "suite",
+    "exposure",
+    "logs_truncated"
+  ],
+  "$defs": {
+    "Attached": {
+      "description": "One file in the bundle: where it is, and what it must hash to.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "Path inside the bundle, POSIX-style and relative to its root.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA-256 of the file's raw bytes, as lowercase hexadecimal.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ]
+    },
+    "Attachment": {
+      "description": "What travels with one mutant.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The mutant this is about, as the manifest and the report name it.",
+          "type": "string"
+        },
+        "log": {
+          "description": "What the suite printed under this mutant, or `null` when no log travels.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Attached"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "patch": {
+          "description": "The patch that reproduces it, or `null` when none was written.\n\n`null` means the file was not created, and never that a diff was withheld:\nthe unified diff of every mutant is in `results.json` regardless, and\n`patch_error` says what was wrong with this one.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Attached"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "patch_error": {
+          "description": "Why no patch was written. Present when, and only when, `patch` is absent\nfor a reason — in the document rather than only on a console, because the\nreader who needs it is not the one who ran the command.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "Base": {
+      "description": "The revision a patch in this bundle applies to.",
+      "type": "object",
+      "properties": {
+        "dirty": {
+          "description": "Whether the working tree had changes of its own when the run started.",
+          "type": "boolean"
+        },
+        "reproducible_from_revision": {
+          "description": "Whether checking out `revision` reproduces what the run measured, which\nholds when there is a revision and the tree was clean.",
+          "type": "boolean"
+        },
+        "revision": {
+          "description": "The revision the run observed, or `null` when the project was not a\nrepository. Written either way rather than left out, because it is what\n[`Base::reproducible_from_revision`] is a statement about.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "dirty",
+        "reproducible_from_revision"
+      ]
+    },
+    "Documents": {
+      "description": "The contract documents a bundle carries, by path and by hash.\n\nFour of them always, because each answers a question the others cannot: the\nreport holds the verdicts, the manifest holds the text and span every mutant\nidentifier is derived from, the results hold the machine-readable execution\nsignals, and the baseline says what the suite did unmutated.",
+      "type": "object",
+      "properties": {
+        "baseline": {
+          "description": "What the suite did with nothing mutated.",
+          "$ref": "#/$defs/Attached"
+        },
+        "manifest": {
+          "description": "What each mutant replaces, and where.",
+          "$ref": "#/$defs/Attached"
+        },
+        "report": {
+          "description": "The run's verdicts. This is what says which mutants survived.",
+          "$ref": "#/$defs/Attached"
+        },
+        "results": {
+          "description": "The neutral execution signals, per mutant.",
+          "$ref": "#/$defs/Attached"
+        },
+        "triage": {
+          "description": "A second opinion on the survivors, when one was asked for.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Attached"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "report",
+        "manifest",
+        "results",
+        "baseline"
+      ]
+    },
+    "Exposure": {
+      "description": "What kinds of content a bundle holds.\n\nOne boolean cannot say whether a bundle is safe to publish, so this says what\nis actually in it and leaves the judgement to whoever is about to distribute\nit. Every field is about content that is present, never about a promise.\n\nFour independent facts and not a state: any combination of them can happen, and\ncollapsing them into fewer values is exactly the false labelling this replaced.",
+      "type": "object",
+      "properties": {
+        "absolute_paths": {
+          "description": "Whether absolute paths remain anywhere in the bundle. True while\n`report.json` is carried unchanged, since its `project` is the root as it\nwas spelled on the command line.",
+          "type": "boolean"
+        },
+        "backend_raw_output": {
+          "description": "Always true: `results.json` is kept byte for byte, and the execution\nbackend's own output is inside it, markers and absolute paths included.\nLeaving out the log files does not change that.",
+          "type": "boolean"
+        },
+        "patch_context": {
+          "description": "A patch carries the source lines around the change, so some of the\nproject's source travels with the bundle. Always true of a bundle with any\npatch in it.",
+          "type": "boolean"
+        },
+        "standalone_logs": {
+          "description": "Whether log files travel beside the documents. False when they were left\nout, which does not make the bundle free of test output — see\n`backend_raw_output`.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "patch_context",
+        "standalone_logs",
+        "backend_raw_output",
+        "absolute_paths"
+      ]
+    },
+    "Suite": {
+      "description": "What the run measured, in the terms needed to measure it again.",
+      "type": "object",
+      "properties": {
+        "collected": {
+          "description": "How many tests the unmutated suite collected. A reader whose own run\ncollects a different number is measuring a different suite.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "tests": {
+          "description": "The selectors the run was told to collect, in the order it was given them.\nEmpty means the project's own default collection.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "collected"
+      ]
+    }
+  }
+}
