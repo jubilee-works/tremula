@@ -69,7 +69,30 @@ pub fn render(report: &Report, baseline: Option<&Baseline>) -> String {
         report.exit_code,
         exit_reason(report.score)
     ));
+    if let Some(said) = what_next(report.score) {
+        lines.push(said);
+    }
     lines.join("\n")
+}
+
+/// What a reader who has just seen a score would do next, when there is anything.
+///
+/// Here rather than in a README because the two commands that follow a run are not
+/// discoverable from it: a run says what the suite did and stops, and the reader who
+/// needs `triage` is the one who just got a list of survivors they have no order to
+/// read in. Nothing is suggested for a run that tested nothing, since nothing
+/// happened to follow up.
+fn what_next(score: Score) -> Option<String> {
+    if score.total == 0 {
+        return None;
+    }
+    let bundling = "`tremula bundle` packages this run's evidence for somebody else";
+    if score.survived > 0 {
+        return Some(format!(
+            "next: `tremula triage --model <model>` sorts the survivors; {bundling}"
+        ));
+    }
+    Some(format!("next: {bundling}"))
 }
 
 /// Render what a generation produced.

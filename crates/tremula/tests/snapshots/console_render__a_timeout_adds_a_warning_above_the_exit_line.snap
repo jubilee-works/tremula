@@ -13,3 +13,4 @@ score: 2/2 killed (1 timeout) · 0 survived · 0 excluded
 note: SURVIVED = not killed by the existing suite (execution/coverage unverified)
 warning: 1 mutant(s) timed out — inspect before trusting the score
 exit 0 (no survivors)
+next: `tremula bundle` packages this run's evidence for somebody else
