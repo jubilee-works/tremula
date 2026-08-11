@@ -348,7 +348,12 @@ fn announce(run: &RunDir) {
 
 /// Everything the report records about the run itself.
 fn meta(args: &RunArgs, run: &RunDir, observed: &Observed) -> RunMeta {
-    provenance::run_meta(run.run_id(), &args.project.display().to_string(), observed)
+    provenance::run_meta(
+        run.run_id(),
+        &args.project.display().to_string(),
+        &args.tests,
+        observed,
+    )
 }
 
 /// Say whether a failed run left the sources as it found them.

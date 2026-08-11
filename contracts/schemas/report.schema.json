@@ -155,6 +155,13 @@
           "description": "When the run started, RFC 3339.",
           "type": "string"
         },
+        "tests": {
+          "description": "Test selectors the run was told to collect, in the order they were given\nand spelled as they were given. Empty means the project's own default\ncollection, which is not the same as selecting nothing: it is the only\nrecord of how to run the same suite again.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "tremula_version": {
           "description": "Version of the tremula core that judged this run.",
           "type": "string"

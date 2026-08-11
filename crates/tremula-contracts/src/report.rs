@@ -35,6 +35,12 @@ pub struct RunMeta {
     pub decision_rules_version: String,
     /// Project root, as given on the command line.
     pub project: String,
+    /// Test selectors the run was told to collect, in the order they were given
+    /// and spelled as they were given. Empty means the project's own default
+    /// collection, which is not the same as selecting nothing: it is the only
+    /// record of how to run the same suite again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tests: Vec<String>,
     /// Source revision observed at run time, or absent when unavailable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed_revision: Option<String>,

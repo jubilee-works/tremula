@@ -296,6 +296,53 @@ fn a_run_judges_the_packs_results_and_leaves_a_report_machines_can_read() {
     assert!(!report.caveats.is_empty());
 }
 
+/// Which tests a run was told to collect is something only the run knows, and a
+/// reader who wants to run the suite again the way it was run needs the selectors
+/// in the order they were given.
+#[test]
+fn a_run_records_the_test_selectors_it_was_given_in_order() {
+    let workspace = Workspace::new();
+    workspace
+        .write_manifest(2)
+        .write_finishing_pack("$(basename \"$out\")");
+
+    let output = workspace.run(&[
+        "--tests",
+        "tests/test_ranges.py",
+        "--tests",
+        "tests/test_gaps.py",
+    ]);
+
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    let document = fs::read_to_string(workspace.run_dir().join("report.json")).unwrap();
+    let report: Report = serde_json::from_str(&document).unwrap();
+    assert_eq!(
+        report.run.tests,
+        vec!["tests/test_ranges.py", "tests/test_gaps.py"]
+    );
+}
+
+/// A run given no selectors collected the project's own default, and the report
+/// says so by leaving the field out rather than by claiming an empty selection.
+#[test]
+fn a_run_given_no_test_selectors_records_none() {
+    let workspace = Workspace::new();
+    workspace
+        .write_manifest(2)
+        .write_finishing_pack("$(basename \"$out\")");
+
+    workspace.run(&[]);
+
+    let document = fs::read_to_string(workspace.run_dir().join("report.json")).unwrap();
+    let report: Report = serde_json::from_str(&document).unwrap();
+    assert!(report.run.tests.is_empty());
+    let raw: serde_json::Value = serde_json::from_str(&document).unwrap();
+    assert!(
+        raw["run"].get("tests").is_none(),
+        "an empty selection is an absent field, not an empty list: {document}"
+    );
+}
+
 /// A project that is not a repository has no revision to record, and saying so
 /// is not the same as recording nothing.
 #[test]

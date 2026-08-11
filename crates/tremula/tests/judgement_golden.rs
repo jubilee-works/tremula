@@ -37,6 +37,7 @@ fn run_meta() -> RunMeta {
         tremula_version: env!("CARGO_PKG_VERSION").to_owned(),
         decision_rules_version: DECISION_RULES_VERSION.to_owned(),
         project: ".".to_owned(),
+        tests: Vec::new(),
         observed_revision: Some("9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80".to_owned()),
         dirty: false,
         started_at: "2026-08-07T04:15:00Z".to_owned(),

@@ -282,6 +282,7 @@ mod tests {
             tremula_version: env!("CARGO_PKG_VERSION").to_owned(),
             decision_rules_version: crate::decision::DECISION_RULES_VERSION.to_owned(),
             project: ".".to_owned(),
+            tests: Vec::new(),
             observed_revision: None,
             dirty: false,
             started_at: "2026-08-07T04:15:00Z".to_owned(),

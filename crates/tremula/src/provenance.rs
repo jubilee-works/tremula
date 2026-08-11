@@ -82,16 +82,22 @@ fn git(project_root: &Path, arguments: &[&str]) -> Option<String> {
 /// `project` is the root as the caller spelled it, which is what a reader
 /// recognises and what makes the console line about it worth printing.
 ///
+/// `tests` are the selectors the run was told to collect, and they are recorded
+/// for the same reason the revision is: nothing a run leaves behind can be used
+/// to work out how the suite was chosen, and a reader who cannot choose it the
+/// same way cannot check a verdict.
+///
 /// The run is stamped as finished at the moment this is called, so it has to be
 /// called once the work is: a reader who compares the two stamps is asking how
 /// long the run took.
 #[must_use]
-pub fn run_meta(run_id: &str, project: &str, observed: &Observed) -> RunMeta {
+pub fn run_meta(run_id: &str, project: &str, tests: &[String], observed: &Observed) -> RunMeta {
     RunMeta {
         run_id: run_id.to_owned(),
         tremula_version: env!("CARGO_PKG_VERSION").to_owned(),
         decision_rules_version: DECISION_RULES_VERSION.to_owned(),
         project: project.to_owned(),
+        tests: tests.to_vec(),
         observed_revision: observed.revision.clone(),
         dirty: observed.dirty,
         started_at: timestamp(observed.started),
