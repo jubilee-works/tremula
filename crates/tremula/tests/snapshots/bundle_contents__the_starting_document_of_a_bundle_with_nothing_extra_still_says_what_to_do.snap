@@ -1,0 +1,21 @@
+---
+source: crates/tremula/tests/bundle_contents.rs
+expression: "fs::read_to_string(written.path.join(\"START_HERE.md\")).unwrap()"
+---
+# Start here
+
+This is the evidence one tremula run produced: which planted bugs the project's test suite failed to notice, and what it takes to make one of them fail a test.
+
+Read in this order:
+
+1. `report.json` — every `verdicts` entry whose `verdict` is `survived` is a bug the suite missed.
+2. `manifest.json` — the same `mutant_id` under `mutants` gives the file, the byte span, and the exact text the mutation replaces.
+3. `patches/<mutant-id>.patch` — that change, ready for `git apply`. A `patch` of `null` in `bundle.json` means no file was written and `patch_error` says why; the diff itself is still in `results.json` under `entries[].diff`.
+
+The run was made outside a version-controlled checkout, so `base.revision` is null and there is no revision to return to. Apply the patch to the project as the run measured it:
+
+    git apply patches/<mutant-id>.patch
+
+Run the project's own default test collection and write a test that fails while the patch is applied. Revert the patch, keep the test, and `tremula run --manifest manifest.json --project <checkout>` will report that mutant as killed. The unmutated suite collected 4 tests; one that collects a different number is not the suite this bundle is about.
+
+What this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of each file beside its name.

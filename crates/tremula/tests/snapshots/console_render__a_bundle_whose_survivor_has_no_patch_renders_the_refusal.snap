@@ -1,0 +1,16 @@
+---
+source: crates/tremula/tests/console_render.rs
+expression: render_bundle(&written)
+---
+tremula bundle · run 20260810T042611Z-3e6e2e · project: sample_project
+
+  documents: report.json, manifest.json, results.json, baseline.json, triage.json
+  patches: 1 of 2 mutant(s)
+  logs: 2 file(s), machine paths removed, some shortened
+  exposure: source context in patches · test output as log files · backend output inside results.json · absolute paths in report.json
+  base: 9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80 — a checkout of it reproduces what was measured
+
+error: no patch for 1f3a9d2e — git apply --check refused it: error: limits.py: does not match index
+wrote /somewhere/tremula-bundle-20260810T042611Z-3e6e2e
+next: hand this directory over; `START_HERE.md` in it says how to read it
+exit 2 (1 survivor(s) have no patch that applies)

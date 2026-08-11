@@ -1,6 +1,8 @@
 //! The console report: a view over a judged report, for people. Machines read
 //! the report document instead, so nothing here is meant to be parsed.
 
+mod bundle;
+
 use std::fmt::Write as _;
 
 use tremula_contracts::{
@@ -9,6 +11,8 @@ use tremula_contracts::{
     runner::RunnerResult,
     triage::{Classification, Triage, TriageEntry},
 };
+
+pub use bundle::render_bundle;
 
 use crate::generate::command::{Generated, exit_code};
 

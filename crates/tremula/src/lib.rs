@@ -3,6 +3,7 @@
 //! the shared contracts — it knows nothing about any execution backend.
 
 pub mod artifacts;
+pub mod bundle;
 pub mod child;
 pub mod console;
 pub mod decision;

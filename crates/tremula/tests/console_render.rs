@@ -6,10 +6,16 @@
 use std::{fs, path::PathBuf};
 
 use serde::de::DeserializeOwned;
-use tremula::{console::render, decision::DECISION_RULES_VERSION, report::build_report};
+use tremula::{
+    bundle::Written,
+    console::{render, render_bundle},
+    decision::DECISION_RULES_VERSION,
+    report::build_report,
+};
 use tremula_contracts::{
     SCHEMA_VERSION,
     baseline::Baseline,
+    bundle::BundleIndex,
     manifest::{Base, Language, Manifest, Mutant, Span},
     report::{Report, RunMeta},
     results::{ExecutionStatus, Location, PackInfo, ResultEntry, Results},
@@ -190,4 +196,34 @@ fn a_kill_caused_only_by_errors_renders_among_mixed_verdicts() {
 fn excluded_mutants_render_their_own_verdicts() {
     let (report, baseline) = judged(&[Outcome::Survived, Outcome::Erroring, Outcome::Skipped]);
     insta::assert_snapshot!(render(&report, Some(&baseline)));
+}
+
+/// The reference bundle: everything a reader deciding whether to send the directory
+/// somewhere has to see, taken from the committed example so that the console and the
+/// contract cannot drift apart.
+#[test]
+fn a_bundle_renders_what_it_carries_and_what_it_exposes() {
+    let index: BundleIndex = example("bundle/minimal.json");
+    let written = Written {
+        path: PathBuf::from("/somewhere/tremula-bundle-20260810T090000Z-abc123"),
+        index,
+        unusable: Vec::new(),
+    };
+    insta::assert_snapshot!(render_bundle(&written));
+}
+
+/// The same bundle with a survivor nobody can reproduce from it. The line is an error
+/// rather than a note, and the exit code says the bundle is not the one that was asked
+/// for even though it was written.
+#[test]
+fn a_bundle_whose_survivor_has_no_patch_renders_the_refusal() {
+    let mut index: BundleIndex = example("bundle/with-triage.json");
+    index.exposure.patch_context = true;
+    let unusable = vec![index.attachments[1].id.clone()];
+    let written = Written {
+        path: PathBuf::from("/somewhere/tremula-bundle-20260810T042611Z-3e6e2e"),
+        index,
+        unusable,
+    };
+    insta::assert_snapshot!(render_bundle(&written));
 }

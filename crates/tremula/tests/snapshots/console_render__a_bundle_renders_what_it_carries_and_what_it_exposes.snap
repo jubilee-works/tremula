@@ -1,0 +1,15 @@
+---
+source: crates/tremula/tests/console_render.rs
+expression: render_bundle(&written)
+---
+tremula bundle · run 20260810T090000Z-abc123 · project: sample_project
+
+  documents: report.json, manifest.json, results.json, baseline.json
+  patches: 1 of 1 mutant(s)
+  logs: 1 file(s), machine paths removed
+  exposure: source context in patches · test output as log files · backend output inside results.json · absolute paths in report.json
+  base: no revision — the project was not a version-controlled checkout
+
+wrote /somewhere/tremula-bundle-20260810T090000Z-abc123
+next: hand this directory over; `START_HERE.md` in it says how to read it
+exit 0 (1 mutant(s) packaged)
