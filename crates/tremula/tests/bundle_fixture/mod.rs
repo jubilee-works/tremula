@@ -25,8 +25,13 @@ use tempfile::TempDir;
 use tremula::{bundle::BundleArgs, validation::canonical_mutant_id};
 use tremula_contracts::{bundle::BundleIndex, manifest::Span};
 
-/// The run every fixture names, spelled the way a run directory is.
-pub const RUN_ID: &str = "20260810T090000Z-abc123";
+/// The moment every fixture's run started, which is the first half of its name. The
+/// second half is the fingerprint of the manifest the run ran, so a fixture derives it
+/// the way a run does rather than writing one down.
+pub const STAMP: &str = "20260810T090000Z";
+
+/// How much of the manifest's hash a run's name carries.
+const FINGERPRINT_CHARS: usize = 6;
 
 /// The project every fixture builds, so the name in a bundle is worth asserting.
 pub const PROJECT: &str = "sample_project";
@@ -77,6 +82,9 @@ pub fn one_survivor() -> [Mutation; 2] {
 /// A finished run, in a project of its own.
 pub struct RunFixture {
     workspace: TempDir,
+    /// The run's name, which is the moment it started and the fingerprint of its
+    /// manifest — derived here the way a run derives it.
+    pub run_id: String,
     /// The mutant identifiers, in the order the fixture's mutations were given.
     pub ids: Vec<String>,
 }
@@ -85,47 +93,44 @@ impl RunFixture {
     /// A run directory holding these mutations, the verdicts they were given, and a
     /// diff for each that git will accept against the snapshot.
     pub fn of(mutations: &[Mutation]) -> Self {
-        let workspace = TempDir::new().unwrap();
-        let fixture = Self {
-            workspace,
-            ids: Vec::new(),
-        };
-        fixture.build(mutations, true)
+        Self::empty().build(mutations, true)
     }
 
     /// The same, with no diff recorded for any mutant: what a pack that could not
     /// render one leaves behind.
     pub fn without_diffs(mutations: &[Mutation]) -> Self {
-        let workspace = TempDir::new().unwrap();
-        let fixture = Self {
-            workspace,
+        Self::empty().build(mutations, false)
+    }
+
+    /// A workspace with no run in it yet.
+    fn empty() -> Self {
+        Self {
+            workspace: TempDir::new().unwrap(),
+            run_id: String::new(),
             ids: Vec::new(),
-        };
-        fixture.build(mutations, false)
+        }
     }
 
     /// A run of a manifest with nothing in it: a report, and no other document.
     pub fn nothing_to_test() -> Self {
-        let fixture = Self {
-            workspace: TempDir::new().unwrap(),
-            ids: Vec::new(),
-        };
+        let mut fixture = Self::empty();
+        // No manifest, so there is no fingerprint to derive one from.
+        fixture.run_id = format!("{STAMP}-abc123");
         fs::create_dir_all(fixture.run_dir()).unwrap();
-        write(&fixture.run_dir().join("report.json"), &report(RUN_ID, &[]));
+        write(
+            &fixture.run_dir().join("report.json"),
+            &report(&fixture.run_id, &[]),
+        );
         fixture.link_latest();
         fixture
     }
 
     fn build(mut self, mutations: &[Mutation], with_diffs: bool) -> Self {
-        let run_dir = self.run_dir();
-        fs::create_dir_all(run_dir.join("snapshot")).unwrap();
-        fs::create_dir_all(run_dir.join("logs")).unwrap();
-        fs::write(run_dir.join("snapshot").join(FILE), SOURCE).unwrap();
-        fs::write(run_dir.join("logs").join("baseline.txt"), "4 passed\n").unwrap();
         let digest = format!("{:x}", Sha256::digest(SOURCE.as_bytes()));
         let mut mutants = Vec::new();
         let mut verdicts = Vec::new();
         let mut entries = Vec::new();
+        let mut logs = Vec::new();
         for mutation in mutations {
             let span = span_of(mutation.original);
             let id = canonical_mutant_id(FILE, &span, &digest, mutation.replacement);
@@ -154,16 +159,33 @@ impl RunFixture {
                 entry["diff"] = json!(self.diff_of(mutation));
             }
             entries.push(entry);
-            fs::write(
-                run_dir.join("logs").join(format!("{id}.txt")),
+            logs.push((
+                format!("{id}.txt"),
                 format!("the suite said this about {}\n", mutation.original),
-            )
-            .unwrap();
+            ));
         }
-        write(&run_dir.join("manifest.json"), &manifest(&mutants));
-        write(&run_dir.join("report.json"), &report(RUN_ID, &verdicts));
-        write(&run_dir.join("results.json"), &results(RUN_ID, &entries));
-        write(&run_dir.join("baseline.json"), &baseline(RUN_ID));
+        // The manifest first, because the run's own name is derived from its bytes and
+        // everything else is written under that name.
+        let document = pretty(&manifest(&mutants));
+        self.run_id = format!("{STAMP}-{}", fingerprint_of(document.as_bytes()));
+        let run_dir = self.run_dir();
+        fs::create_dir_all(run_dir.join("snapshot")).unwrap();
+        fs::create_dir_all(run_dir.join("logs")).unwrap();
+        fs::write(run_dir.join("snapshot").join(FILE), SOURCE).unwrap();
+        fs::write(run_dir.join("logs").join("baseline.txt"), "4 passed\n").unwrap();
+        for (name, said) in logs {
+            fs::write(run_dir.join("logs").join(name), said).unwrap();
+        }
+        fs::write(run_dir.join("manifest.json"), &document).unwrap();
+        write(
+            &run_dir.join("report.json"),
+            &report(&self.run_id, &verdicts),
+        );
+        write(
+            &run_dir.join("results.json"),
+            &results(&self.run_id, &entries),
+        );
+        write(&run_dir.join("baseline.json"), &baseline(&self.run_id));
         self.link_latest();
         self
     }
@@ -172,7 +194,7 @@ impl RunFixture {
     fn link_latest(&self) {
         let runs = self.project().join(".tremula").join("runs");
         drop(fs::remove_file(runs.join("latest")));
-        std::os::unix::fs::symlink(RUN_ID, runs.join("latest")).unwrap();
+        std::os::unix::fs::symlink(&self.run_id, runs.join("latest")).unwrap();
     }
 
     /// A unified diff of one mutation, made by git so that git will accept it.
@@ -219,7 +241,10 @@ impl RunFixture {
 
     /// The run directory itself.
     pub fn run_dir(&self) -> PathBuf {
-        self.project().join(".tremula").join("runs").join(RUN_ID)
+        self.project()
+            .join(".tremula")
+            .join("runs")
+            .join(&self.run_id)
     }
 
     /// A path outside the project, for the tests about `--out`.
@@ -229,7 +254,8 @@ impl RunFixture {
 
     /// Where a bundle goes when nobody says.
     pub fn default_out(&self) -> PathBuf {
-        self.project().join(format!("tremula-bundle-{RUN_ID}"))
+        self.project()
+            .join(format!("tremula-bundle-{}", self.run_id))
     }
 
     /// Rewrite one of the run's documents, for the tests about them disagreeing.
@@ -389,7 +415,20 @@ pub fn span_of(original: &str) -> Span {
 }
 
 fn write(path: &Path, document: &Value) {
+    fs::write(path, pretty(document)).unwrap();
+}
+
+/// One document, spelled the way a run writes it.
+fn pretty(document: &Value) -> String {
     let mut text = serde_json::to_string_pretty(document).unwrap();
     text.push('\n');
-    fs::write(path, text).unwrap();
+    text
+}
+
+/// The part of a manifest's hash a run's name carries.
+pub fn fingerprint_of(document: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(document))
+        .chars()
+        .take(FINGERPRINT_CHARS)
+        .collect()
 }

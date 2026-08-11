@@ -5,12 +5,17 @@
 //! never measured — the one failure a reader of the bundle could not possibly
 //! detect. So everything here comes out of the run's own documents.
 //!
-//! Five things are checked before anything is written, and each is a way for one
+//! Seven things are checked before anything is written, and each is a way for one
 //! run's documents to be two runs': that the report in the directory is the
-//! directory's own run, that the results, the baseline, and the triage name that
-//! same run, that all of them were written against one contract version, that the
-//! triage is about this report and not another, and that the manifest and the
-//! report cover exactly the same mutants.
+//! directory's own run, that the report was written against the contract this
+//! tremula reads, that the results, the baseline, and the triage name that same run,
+//! that all of them declare the same contract version, that the triage is about this
+//! report and not another, that the manifest and the report cover exactly the same
+//! mutants, and that the manifest is the one the run's own name was derived from.
+//!
+//! A directory with no report in it is none of those. A run points `latest` at itself
+//! before it writes its report, so that is a run still going on — or one that failed —
+//! and it is said as such rather than as a document that cannot be read.
 //!
 //! Patches come from `results.entries[].diff`, which is a published contract, and
 //! not from the working file a pack keeps beside it. Each one is checked by running
@@ -29,6 +34,7 @@ use std::{
 
 use sha2::{Digest, Sha256};
 use tremula_contracts::{
+    SCHEMA_VERSION,
     baseline::Baseline,
     bundle::{Attached, Attachment},
     manifest::Manifest,
@@ -62,6 +68,11 @@ pub const PATCHES: &str = "patches";
 
 /// How many characters a mutant identifier has.
 const ID_CHARS: usize = 64;
+
+/// How much of the manifest's hash a run's name carries. A run is named
+/// `<stamp>-<fingerprint>`, and one that found its own name taken gets a further suffix,
+/// so the fingerprint is the segment after the stamp either way.
+const FINGERPRINT_CHARS: usize = 6;
 
 /// One document, kept as bytes as well as as itself.
 ///
@@ -137,7 +148,21 @@ pub fn read(run_dir: &Path) -> Result<Read, BundleFailure> {
         .unwrap_or_default()
         .to_owned();
     let directory = resolved.display().to_string();
+    // A run publishes `latest` before it writes its report, so a directory with no report
+    // in it is routinely a run that is still going rather than one that broke.
+    if !resolved.join(REPORT).exists() {
+        return Err(BundleFailure::RunUnfinished { run_dir: resolved });
+    }
     let report: Document<Report> = document(&resolved.join(REPORT), "report")?;
+    // Before anything is compared against it: every other document is checked against the
+    // report's own declared version, so a report from another contract would make the whole
+    // agreement a statement about a version this tremula never wrote.
+    if report.value.schema_version != SCHEMA_VERSION {
+        return Err(BundleFailure::ReportContract {
+            directory,
+            found: report.value.schema_version.clone(),
+        });
+    }
     if report.value.run.run_id != run_id {
         return Err(BundleFailure::AnotherRun {
             document: "report",
@@ -176,6 +201,11 @@ pub fn read(run_dir: &Path) -> Result<Read, BundleFailure> {
     };
     of_one_run(&evidence, &directory)?;
     covering_the_same_mutants(&evidence)?;
+    // Last of the three, because it is the one whose complaint names no mutant: a manifest
+    // that holds other mutants than the report fails the check above, which can say which
+    // mutant it was, and this is left with the case where the two agree on every mutant and
+    // the bytes are still another run's.
+    from_the_manifest_the_run_ran(&evidence, &directory)?;
     Ok(Read::Evidence(Box::new(evidence)))
 }
 
@@ -242,6 +272,50 @@ fn of_one_run(evidence: &Evidence, directory: &str) -> Result<(), BundleFailure>
     Ok(())
 }
 
+/// The manifest in the directory is the one the run's own name was derived from.
+///
+/// A run is named `<stamp>-<fingerprint>`, where the fingerprint is the first
+/// [`FINGERPRINT_CHARS`] hexadecimal digits of the SHA-256 of the manifest it was given,
+/// and the pack keeps that manifest byte for byte. So the two can be compared — and this is
+/// the only link there is between a run and the manifest beside it. A manifest swapped for
+/// another run's is the substitution nothing else here would notice: it can hold the same
+/// mutants under the same identifiers and name no run of its own at all, while the spans,
+/// the originals and the replacements a reader of the bundle would go on to read are not
+/// the ones the verdicts were reached about.
+///
+/// A directory whose name carries no fingerprint — a run copied to a name of somebody's
+/// own — has nothing to compare against. Refusing that would be a rule about names rather
+/// than about evidence, so it passes.
+fn from_the_manifest_the_run_ran(
+    evidence: &Evidence,
+    directory: &str,
+) -> Result<(), BundleFailure> {
+    let Some(expected) = fingerprint(&evidence.run_id) else {
+        return Ok(());
+    };
+    let found: String = format!("{:x}", Sha256::digest(&evidence.manifest.bytes))
+        .chars()
+        .take(FINGERPRINT_CHARS)
+        .collect();
+    if found != expected {
+        return Err(BundleFailure::ManifestOfAnotherRun {
+            directory: directory.to_owned(),
+            run_id: evidence.run_id.clone(),
+            found,
+            expected: expected.to_owned(),
+        });
+    }
+    Ok(())
+}
+
+/// The manifest fingerprint a run's name carries, when the name is one this tool derived.
+fn fingerprint(run_id: &str) -> Option<&str> {
+    let mut segments = run_id.split('-');
+    segments.next()?;
+    let fingerprint = segments.next()?;
+    (fingerprint.len() == FINGERPRINT_CHARS && hexadecimal(fingerprint)).then_some(fingerprint)
+}
+
 /// The manifest and the report account for exactly the same mutants, and every
 /// identifier is one a file may be named after.
 ///
@@ -294,10 +368,13 @@ fn covering_the_same_mutants(evidence: &Evidence) -> Result<(), BundleFailure> {
 /// sixty-four lowercase hexadecimal digits, and nothing else at all.
 #[must_use]
 pub fn canonical(id: &str) -> bool {
-    id.len() == ID_CHARS
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    id.len() == ID_CHARS && hexadecimal(id)
+}
+
+/// Whether every character is a lowercase hexadecimal digit.
+fn hexadecimal(said: &str) -> bool {
+    said.bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// The patches of one run, written and checked, with what came of each.

@@ -17,7 +17,7 @@ use tremula_contracts::bundle::{Attached, BundleIndex};
 
 mod bundle_fixture;
 
-use bundle_fixture::{FILE, RUN_ID, RunFixture, SOURCE, one_survivor, triage};
+use bundle_fixture::{FILE, RunFixture, SOURCE, one_survivor, triage};
 
 /// Every path the index names, in one list, so a test can hold all of them to the same
 /// promise.
@@ -57,7 +57,7 @@ fn every_hash_in_the_index_is_the_hash_of_the_file_it_names() {
     let fixture = RunFixture::of(&one_survivor());
     fixture.rewrite(
         "triage.json",
-        &triage(RUN_ID, "report.json", &fixture.ids[1]),
+        &triage(&fixture.run_id, "report.json", &fixture.ids[1]),
     );
 
     let packaged = package(&fixture.asking()).unwrap();
@@ -344,7 +344,7 @@ fn the_starting_document_says_how_to_read_the_bundle() {
     fixture.rewrite("report.json", &edited);
     fixture.rewrite(
         "triage.json",
-        &triage(RUN_ID, "report.json", &fixture.ids[1]),
+        &triage(&fixture.run_id, "report.json", &fixture.ids[1]),
     );
 
     let packaged = package(&fixture.asking()).unwrap();

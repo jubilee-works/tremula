@@ -16,7 +16,7 @@ use tremula::bundle::{exit_status, package};
 
 mod bundle_fixture;
 
-use bundle_fixture::{FILE, PROJECT, RUN_ID, RunFixture, one_survivor, report, triage};
+use bundle_fixture::{FILE, PROJECT, RunFixture, one_survivor, report, triage};
 
 /// The default `--run` is the `latest` link, and a link's own name is not a run
 /// identifier. Comparing it against the documents would make every default
@@ -30,7 +30,7 @@ fn packaging_with_no_run_named_follows_the_latest_link() {
     assert_eq!(code, 0);
     let out = fixture.default_out();
     assert!(out.join("bundle.json").is_file(), "{}", out.display());
-    assert_eq!(fixture.index(&out).run_id, RUN_ID);
+    assert_eq!(fixture.index(&out).run_id, fixture.run_id);
 }
 
 /// A bundle is a thing that gets copied and sent, so the one already at a path may be
@@ -139,7 +139,11 @@ fn a_triage_about_another_report_is_refused() {
     let fixture = RunFixture::of(&one_survivor());
     fixture.rewrite(
         "triage.json",
-        &triage(RUN_ID, "report-from-somewhere-else.json", &fixture.ids[1]),
+        &triage(
+            &fixture.run_id,
+            "report-from-somewhere-else.json",
+            &fixture.ids[1],
+        ),
     );
 
     let failure = package(&fixture.asking()).unwrap_err();
@@ -159,7 +163,7 @@ fn a_triage_of_this_report_is_packaged_beside_it() {
     let fixture = RunFixture::of(&one_survivor());
     fixture.rewrite(
         "triage.json",
-        &triage(RUN_ID, "report.json", &fixture.ids[1]),
+        &triage(&fixture.run_id, "report.json", &fixture.ids[1]),
     );
 
     let code = exit_status(&fixture.asking());
@@ -248,6 +252,66 @@ fn a_run_that_tested_nothing_says_so_and_writes_no_bundle() {
         !fixture.default_out().exists(),
         "a run with no evidence still produced a bundle"
     );
+}
+
+/// A run publishes `latest` before it writes its report, so a bundle asked for while a run
+/// is going on finds a directory with no report in it. That is not a broken run and reading
+/// it as an unreadable document says nothing a person can act on.
+#[test]
+fn a_run_with_no_report_yet_is_reported_as_one_that_has_not_finished() {
+    let fixture = RunFixture::of(&one_survivor());
+    fixture.remove("report.json");
+
+    let failure = package(&fixture.asking()).unwrap_err();
+
+    let said = failure.to_string();
+    assert!(said.contains("may still be in progress"), "{said}");
+    assert!(said.contains("--run"), "{said}");
+}
+
+/// Every document agreeing with the report is not the same as the report being one this
+/// tremula can read. A run whose documents all declare a version nothing here knows would
+/// otherwise be packaged, and the bundle stamped with the version that packaged it.
+#[test]
+fn a_run_written_against_another_contract_is_refused_though_it_agrees_with_itself() {
+    let fixture = RunFixture::of(&one_survivor());
+    for document in [
+        "report.json",
+        "manifest.json",
+        "results.json",
+        "baseline.json",
+    ] {
+        let mut edited = fixture.document(document);
+        edited["schema_version"] = json!("9.9");
+        fixture.rewrite(document, &edited);
+    }
+
+    let failure = package(&fixture.asking()).unwrap_err();
+
+    let said = failure.to_string();
+    assert!(said.contains("9.9"), "{said}");
+    assert!(said.contains("0.1"), "{said}");
+    assert!(!fixture.default_out().exists());
+}
+
+/// A run's name carries the first six hex digits of the manifest it ran, which is the only
+/// link between the two. A manifest swapped for another run's can hold the same mutants and
+/// name no run of its own, so nothing else here would notice — and the spans and
+/// replacements a reader would then read are not the ones the verdicts are about.
+#[test]
+fn a_manifest_that_is_not_the_one_the_run_ran_is_refused() {
+    let fixture = RunFixture::of(&one_survivor());
+    let mut edited = fixture.document("manifest.json");
+    // Every mutant left where it was, so this is the substitution the other checks pass.
+    edited["base"] = json!({"revision": "9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80"});
+    fixture.rewrite("manifest.json", &edited);
+
+    let failure = package(&fixture.asking()).unwrap_err();
+
+    let said = failure.to_string();
+    assert!(said.contains("another run's manifest"), "{said}");
+    assert!(said.contains(&fixture.run_id), "{said}");
+    assert!(!fixture.default_out().exists());
 }
 
 /// There is no such run at all.
@@ -364,7 +428,7 @@ fn the_bundle_names_the_project_and_not_the_path_it_was_built_at() {
 #[test]
 fn a_run_with_a_manifest_and_no_verdicts_is_not_read_as_nothing_to_package() {
     let fixture = RunFixture::of(&one_survivor());
-    fixture.rewrite("report.json", &report(RUN_ID, &[]));
+    fixture.rewrite("report.json", &report(&fixture.run_id, &[]));
 
     let failure = package(&fixture.asking()).unwrap_err();
 

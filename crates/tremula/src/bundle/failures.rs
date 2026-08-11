@@ -7,7 +7,12 @@
 
 use std::path::PathBuf;
 
-use crate::{bundle::collect::REPORT, run_dir::TREMULA_DIR};
+use tremula_contracts::SCHEMA_VERSION;
+
+use crate::{
+    bundle::{LATEST, collect::REPORT},
+    run_dir::TREMULA_DIR,
+};
 
 /// Anything that stops a bundle from being written.
 #[derive(Debug, thiserror::Error)]
@@ -28,6 +33,15 @@ pub enum BundleFailure {
         path: PathBuf,
         /// What the operating system reported.
         reason: String,
+    },
+    /// The directory is a run's and has no report in it yet.
+    #[error(
+        "the run in `{}` has written no `{REPORT}`, so it may still be in progress or may have failed; a run points `{TREMULA_DIR}/runs/{LATEST}` at itself before it writes its report — wait for it to finish, or pass --run with a run that has one",
+        run_dir.display()
+    )]
+    RunUnfinished {
+        /// The run with no report.
+        run_dir: PathBuf,
     },
     /// One of the run's documents could not be read.
     #[error("cannot read `{}`: {reason}", path.display())]
@@ -62,6 +76,30 @@ pub enum BundleFailure {
         /// The run the document names.
         found: String,
         /// The run the directory is.
+        expected: String,
+    },
+    /// The report itself was written against another contract than this one reads.
+    #[error(
+        "the report in `{directory}` declares schema version {found} and this tremula reads {SCHEMA_VERSION}; every other document is checked against the report, so a report from another contract would make that agreement a statement about a version nothing here wrote — and the bundle would carry {SCHEMA_VERSION} over documents that are not it"
+    )]
+    ReportContract {
+        /// The directory that was read.
+        directory: String,
+        /// The version the report declares.
+        found: String,
+    },
+    /// The manifest beside the report is not the one the run ran.
+    #[error(
+        "the manifest in `{directory}` hashes to {found}… and run {run_id} was named after a manifest hashing to {expected}…; a run's name carries the first six hexadecimal digits of the manifest it ran, so this is another run's manifest — and the spans and replacements in it are not the ones the report's verdicts are about"
+    )]
+    ManifestOfAnotherRun {
+        /// The directory that was read.
+        directory: String,
+        /// The run the directory is.
+        run_id: String,
+        /// What the manifest that is there hashes to.
+        found: String,
+        /// What the run's own name says its manifest hashed to.
         expected: String,
     },
     /// Two documents in one directory were written against different contracts.
