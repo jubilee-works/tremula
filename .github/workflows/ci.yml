@@ -37,6 +37,6 @@ jobs:
       - run: uv sync
       - run: uv run tremula --version
       # Snapshots are assertions here, never updated by a run that disagrees.
-      - run: cargo test --features e2e --test e2e --test e2e_generate
+      - run: cargo test --features e2e --test e2e --test e2e_generate --test e2e_bundle
         env:
           INSTA_UPDATE: "no"
