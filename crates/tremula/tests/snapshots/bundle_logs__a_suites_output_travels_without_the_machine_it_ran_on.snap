@@ -1,0 +1,23 @@
+---
+source: crates/tremula/tests/bundle_logs.rs
+expression: said
+---
+============================= test session starts ==============================
+platform darwin -- Python 3.13.1, pytest-8.3.4, pluggy-1.5.0
+rootdir: <project>
+plugins: anyio-4.7.0
+collected 4 items
+
+test_schedule.py ...F                                                    [100%]
+
+=================================== FAILURES ===================================
+_____________________________ test_needs_a_break ______________________________
+
+<project>/test_schedule.py:14: in test_needs_a_break
+assert needs_break(60)
+E   assert False
+
+interpreter: <home>/.venv/bin/python
+bytecode cache: <run>/pycache
+=========================== short test summary info ============================
+FAILED test_schedule.py::test_needs_a_break

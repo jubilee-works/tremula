@@ -16,13 +16,10 @@ use std::fmt::Write as _;
 
 use tremula_contracts::bundle::BundleIndex;
 
-use crate::bundle::collect::{MANIFEST, PATCHES, REPORT, RESULTS, TRIAGE};
-
-/// Where the logs go inside a bundle.
-pub const LOGS: &str = "logs";
-
-/// The log of the run with nothing mutated.
-pub const BASELINE_LOG: &str = "baseline.txt";
+use crate::bundle::{
+    collect::{MANIFEST, PATCHES, REPORT, RESULTS, TRIAGE},
+    logs::{BASELINE_LOG, LOGS},
+};
 
 /// Render the document a reader of `index` should meet first.
 #[must_use]
@@ -37,7 +34,7 @@ pub fn render(index: &BundleIndex) -> String {
     said.push('\n');
     said.push_str(&reproducing(index));
     said.push_str(
-        "\nWhat this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of each file beside its name.\n",
+        "\nWhat this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of every document and patch it names.\n",
     );
     said
 }

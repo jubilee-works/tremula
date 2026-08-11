@@ -11,7 +11,8 @@ Read in this order:
 1. `report.json` — every `verdicts` entry whose `verdict` is `survived` is a bug the suite missed.
 2. `manifest.json` — the same `mutant_id` under `mutants` gives the file, the byte span, and the exact text the mutation replaces.
 3. `patches/<mutant-id>.patch` — that change, ready for `git apply`. A `patch` of `null` in `bundle.json` means no file was written and `patch_error` says why; the diff itself is still in `results.json` under `entries[].diff`.
-4. `triage.json` — what a second look made of each survivor, and whether any input was found that separates it from the original.
+4. `logs/<mutant-id>.txt` — what the suite printed under that mutation, with this machine's paths taken out; `logs/baseline.txt` is the same for the unmutated run.
+5. `triage.json` — what a second look made of each survivor, and whether any input was found that separates it from the original.
 
 Reproduce one from a checkout of the project:
 
@@ -20,4 +21,4 @@ Reproduce one from a checkout of the project:
 
 Run the suite the run collected — `tests/test_ranges.py` — and write a test that fails while the patch is applied. Revert the patch, keep the test, and `tremula run --manifest manifest.json --project <checkout> --tests tests/test_ranges.py` will report that mutant as killed. The unmutated suite collected 4 tests; one that collects a different number is not the suite this bundle is about.
 
-What this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of each file beside its name.
+What this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of every document and patch it names.

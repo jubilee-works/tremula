@@ -42,10 +42,12 @@ use crate::{console, run_dir::TREMULA_DIR};
 
 pub mod collect;
 pub mod failures;
+pub mod logs;
 pub mod start_here;
 
 use collect::{BASELINE, Evidence, MANIFEST, REPORT, RESULTS, Read, TRIAGE};
 use failures::BundleFailure;
+use logs::Machine;
 
 /// What a bundle exits with when it could not be written. The same code every
 /// other operational failure in this tool reports.
@@ -240,7 +242,16 @@ fn assemble(
             None => None,
         },
     };
-    let attaching = collect::patches(evidence, staging)?;
+    let mut attaching = collect::patches(evidence, staging)?;
+    // The logs go through the machine the run happened on, which is the project as the
+    // caller spelled it and the run as the caller pointed at it — both spellings of both,
+    // since a log carries whichever form the process that printed it had.
+    let carried = if args.no_logs {
+        logs::Carried::default()
+    } else {
+        let machine = Machine::around(&args.project, &where_to_look(args));
+        logs::attach(evidence, staging, &machine, &mut attaching.attachments)?
+    };
     let run = &evidence.report.value.run;
     let index = BundleIndex {
         schema_version: SCHEMA_VERSION.to_owned(),
@@ -270,7 +281,7 @@ fn assemble(
             absolute_paths: true,
         },
         attachments: attaching.attachments,
-        logs_truncated: false,
+        logs_truncated: carried.truncated,
     };
     write(staging, START_HERE, start_here::render(&index).as_bytes())?;
     let mut document =
