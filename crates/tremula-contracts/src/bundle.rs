@@ -46,7 +46,19 @@ pub struct BundleIndex {
     pub base: Base,
     /// What suite the run measured, in the terms needed to measure it again.
     pub suite: Suite,
+    /// What the suite printed with nothing mutated, or `null` when no log travels.
+    ///
+    /// Its own field because it belongs to no mutant: it is the run-wide log a reader
+    /// compares every mutant's output against, and nothing under [`BundleIndex::attachments`]
+    /// could hold it. Written even when absent, for the same reason
+    /// [`Attachment::log`] is: "no log travelled" is a fact about the bundle.
+    #[serde(default)]
+    pub baseline_log: Option<Attached>,
     /// One entry per mutant in the run, in the report's order.
+    ///
+    /// `default` without the empty-skip the other lists in these contracts use, and
+    /// deliberately: one entry per mutant is what this list is for, so a bundle that
+    /// omitted it would read as a bundle of no mutants rather than as a shorter list.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
     /// What kinds of content a reader is about to distribute.
@@ -62,6 +74,10 @@ pub struct BundleIndex {
 /// report holds the verdicts, the manifest holds the text and span every mutant
 /// identifier is derived from, the results hold the machine-readable execution
 /// signals, and the baseline says what the suite did unmutated.
+///
+/// The suite's own output is not here. A log is not a contract document — it is
+/// whatever a test framework printed — so the logs are named beside the mutant they
+/// belong to, or in [`BundleIndex::baseline_log`] when they belong to none.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Documents {
     /// The run's verdicts. This is what says which mutants survived.

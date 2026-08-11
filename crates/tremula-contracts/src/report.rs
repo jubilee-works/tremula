@@ -35,10 +35,13 @@ pub struct RunMeta {
     pub decision_rules_version: String,
     /// Project root, as given on the command line.
     pub project: String,
-    /// Test selectors the run was told to collect, in the order they were given
-    /// and spelled as they were given. Empty means the project's own default
-    /// collection, which is not the same as selecting nothing: it is the only
-    /// record of how to run the same suite again.
+    /// Whatever `tremula run --tests` was given, in that order and spelled that
+    /// way, and handed straight to the test runner. Empty means the project's own
+    /// default collection, which is not the same as selecting nothing: it is the
+    /// only record of how to run the same suite again.
+    ///
+    /// Not `tremula generate --tests`, which names test files to read and show a
+    /// model. These are selectors a runner resolves, and nothing here reads them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tests: Vec<String>,
     /// Source revision observed at run time, or absent when unavailable.

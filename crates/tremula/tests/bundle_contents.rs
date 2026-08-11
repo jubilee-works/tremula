@@ -8,7 +8,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::fs;
+use std::{fs, path::Path};
 
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -29,11 +29,24 @@ fn attached(index: &BundleIndex) -> Vec<&Attached> {
         &index.documents.baseline,
     ];
     named.extend(index.documents.triage.as_ref());
+    named.extend(index.baseline_log.as_ref());
     for attachment in &index.attachments {
         named.extend(attachment.patch.as_ref());
         named.extend(attachment.log.as_ref());
     }
     named
+}
+
+/// Every file in a bundle, as a path relative to its root.
+fn files(root: &Path, under: &Path, found: &mut Vec<String>) {
+    for entry in fs::read_dir(under).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            files(root, &path, found);
+        } else if let Ok(relative) = path.strip_prefix(root) {
+            found.push(relative.to_string_lossy().into_owned());
+        }
+    }
 }
 
 /// The whole use of the hashes is that a reader can check them, which means they have
@@ -66,6 +79,75 @@ fn every_hash_in_the_index_is_the_hash_of_the_file_it_names() {
             "{} does not hash to what the index says",
             named.path
         );
+    }
+}
+
+/// The hashes are worth something only if they cover the bundle. A file that travels
+/// without being named in the index is a file no reader can check and no reader was told
+/// about, and the index is the only account of the directory there is.
+#[test]
+fn every_file_in_a_bundle_is_named_in_its_index() {
+    let fixture = RunFixture::of(&one_survivor());
+
+    let packaged = package(&fixture.asking()).unwrap();
+
+    let Packaged::Written(written) = packaged else {
+        panic!("no bundle");
+    };
+    let index = fixture.index(&written.path);
+    let named: Vec<&str> = attached(&index)
+        .iter()
+        .map(|attached| attached.path.as_str())
+        .collect();
+    let mut carried = Vec::new();
+    files(&written.path, &written.path, &mut carried);
+    for file in &carried {
+        // The index and the starting document are the two things that describe the rest,
+        // so neither can be named by the one of them that does the describing.
+        if file == "bundle.json" || file == "START_HERE.md" {
+            continue;
+        }
+        assert!(
+            named.contains(&file.as_str()),
+            "{file} travels in the bundle and nothing in the index names it: {named:?}"
+        );
+    }
+}
+
+/// The unmutated run's own log belongs to no mutant, so nothing under `attachments` could
+/// hold it. A bundle whose only log is that one still carries a log, and both the field a
+/// reader checks and the count they see have to say so.
+#[test]
+fn the_unmutated_run_s_log_is_named_and_counted_on_its_own() {
+    let fixture = RunFixture::of(&one_survivor());
+    for id in &fixture.ids {
+        fs::remove_file(fixture.run_dir().join("logs").join(format!("{id}.txt"))).unwrap();
+    }
+
+    let packaged = package(&fixture.asking()).unwrap();
+
+    let Packaged::Written(written) = packaged else {
+        panic!("no bundle");
+    };
+    let baseline = written
+        .index
+        .baseline_log
+        .as_ref()
+        .expect("the run's own log travelled and the index says nothing about it");
+    assert_eq!(baseline.path, "logs/baseline.txt");
+    assert_eq!(
+        format!(
+            "{:x}",
+            Sha256::digest(fs::read(written.path.join(&baseline.path)).unwrap())
+        ),
+        baseline.sha256
+    );
+    assert!(
+        written.index.exposure.standalone_logs,
+        "a log file travels, and the field a reader checks before publishing says it does not"
+    );
+    for attachment in &written.index.attachments {
+        assert!(attachment.log.is_none());
     }
 }
 

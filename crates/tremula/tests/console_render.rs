@@ -212,6 +212,26 @@ fn a_bundle_renders_what_it_carries_and_what_it_exposes() {
     insta::assert_snapshot!(render_bundle(&written));
 }
 
+/// The unmutated run's log is one of the files somebody is about to hand over, and it
+/// belongs to no mutant. A count taken from the mutants alone is short by one, and says
+/// none at all of the bundle whose only log is that one.
+#[test]
+fn a_bundle_whose_only_log_is_the_unmutated_run_s_still_counts_it() {
+    let mut index: BundleIndex = example("bundle/minimal.json");
+    for attachment in &mut index.attachments {
+        attachment.log = None;
+    }
+    let written = Written {
+        path: PathBuf::from("/somewhere/tremula-bundle-20260810T090000Z-abc123"),
+        index,
+        unusable: Vec::new(),
+    };
+
+    let said = render_bundle(&written);
+
+    assert!(said.contains("logs: 1 file(s)"), "{said}");
+}
+
 /// The same bundle with a survivor nobody can reproduce from it. The line is an error
 /// rather than a note, and the exit code says the bundle is not the one that was asked
 /// for even though it was written.

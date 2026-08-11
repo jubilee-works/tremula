@@ -6,7 +6,7 @@ tremula bundle · run 20260810T042611Z-3e6e2e · project: sample_project
 
   documents: report.json, manifest.json, results.json, baseline.json, triage.json
   patches: 1 of 2 mutant(s)
-  logs: 2 file(s), machine paths removed, some shortened
+  logs: 3 file(s), machine paths removed, some shortened
   exposure: source context in patches · test output as log files · backend output inside results.json · absolute paths in report.json
   base: 9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80 — a checkout of it reproduces what was measured
 

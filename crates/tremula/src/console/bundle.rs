@@ -89,12 +89,17 @@ fn packaged(index: &BundleIndex) -> String {
 }
 
 /// How many logs travel, and whether any of them was shortened.
+///
+/// The unmutated run's own log counts. It is one of the files somebody is about to hand
+/// over, and a count taken from the mutants alone is short by one — or says none at all of
+/// a bundle whose only log is that one.
 fn logs(index: &BundleIndex) -> String {
-    let carried = index
-        .attachments
-        .iter()
-        .filter(|attachment| attachment.log.is_some())
-        .count();
+    let carried = usize::from(index.baseline_log.is_some())
+        + index
+            .attachments
+            .iter()
+            .filter(|attachment| attachment.log.is_some())
+            .count();
     if !index.exposure.standalone_logs {
         return "none".to_owned();
     }

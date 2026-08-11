@@ -96,6 +96,36 @@ fn valid_examples_are_accepted() {
     );
     accepts::<BundleIndex>("bundle/minimal.json", "bundle.schema.json");
     accepts::<BundleIndex>("bundle/with-triage.json", "bundle.schema.json");
+    accepts::<BundleIndex>("bundle/no-logs.json", "bundle.schema.json");
+}
+
+/// What `--no-logs` writes, which no other example shows. `log` and `baseline_log` are
+/// spelled out as null rather than left out: "no log travelled" is a fact about the bundle,
+/// and a reader who found no key at all could not tell it from a bundle written before
+/// either field existed.
+#[test]
+fn a_bundle_written_without_logs_says_so_of_every_log_it_has_none_of() {
+    let instance = read_json("examples/bundle/no-logs.json");
+    assert_eq!(instance.get("baseline_log"), Some(&serde_json::Value::Null));
+    assert_eq!(
+        instance["attachments"][0].get("log"),
+        Some(&serde_json::Value::Null)
+    );
+
+    let index: BundleIndex = serde_json::from_value(instance.clone()).unwrap();
+
+    assert!(!index.exposure.standalone_logs);
+    assert!(index.baseline_log.is_none());
+    assert!(index.attachments[0].log.is_none());
+    assert!(
+        index.exposure.backend_raw_output,
+        "the backend's own output is carried either way"
+    );
+    assert_eq!(
+        serde_json::to_value(&index).unwrap(),
+        instance,
+        "an absent log must be written as null, and not left out"
+    );
 }
 
 /// A bundle index is read by whoever the evidence was handed to, and that consumer

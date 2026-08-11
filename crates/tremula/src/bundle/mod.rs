@@ -253,6 +253,7 @@ fn assemble(
         logs::attach(evidence, staging, &machine, &mut attaching.attachments)?
     };
     let run = &evidence.report.value.run;
+    let baseline_log = carried.baseline;
     let index = BundleIndex {
         schema_version: SCHEMA_VERSION.to_owned(),
         run_id: evidence.run_id.clone(),
@@ -273,13 +274,15 @@ fn assemble(
                 .attachments
                 .iter()
                 .any(|attachment| attachment.patch.is_some()),
-            standalone_logs: attaching
-                .attachments
-                .iter()
-                .any(|attachment| attachment.log.is_some()),
+            standalone_logs: baseline_log.is_some()
+                || attaching
+                    .attachments
+                    .iter()
+                    .any(|attachment| attachment.log.is_some()),
             backend_raw_output: true,
             absolute_paths: true,
         },
+        baseline_log,
         attachments: attaching.attachments,
         logs_truncated: carried.truncated,
     };
@@ -352,6 +355,7 @@ fn as_the_index_says(staging: &Path, index: &BundleIndex) -> Result<(), BundleFa
         &index.documents.baseline,
     ];
     named.extend(index.documents.triage.as_ref());
+    named.extend(index.baseline_log.as_ref());
     for attachment in &index.attachments {
         named.extend(attachment.patch.as_ref());
         named.extend(attachment.log.as_ref());

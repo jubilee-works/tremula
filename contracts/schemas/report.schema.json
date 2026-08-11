@@ -156,7 +156,7 @@
           "type": "string"
         },
         "tests": {
-          "description": "Test selectors the run was told to collect, in the order they were given\nand spelled as they were given. Empty means the project's own default\ncollection, which is not the same as selecting nothing: it is the only\nrecord of how to run the same suite again.",
+          "description": "Whatever `tremula run --tests` was given, in that order and spelled that\nway, and handed straight to the test runner. Empty means the project's own\ndefault collection, which is not the same as selecting nothing: it is the\nonly record of how to run the same suite again.\n\nNot `tremula generate --tests`, which names test files to read and show a\nmodel. These are selectors a runner resolves, and nothing here reads them.",
           "type": "array",
           "items": {
             "type": "string"

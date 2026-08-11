@@ -34,7 +34,7 @@ pub fn render(index: &BundleIndex) -> String {
     said.push('\n');
     said.push_str(&reproducing(index));
     said.push_str(
-        "\nWhat this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of every document and patch it names.\n",
+        "\nWhat this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of every file in it but itself and this one.\n",
     );
     said
 }

@@ -5,7 +5,7 @@
   "type": "object",
   "properties": {
     "attachments": {
-      "description": "One entry per mutant in the run, in the report's order.",
+      "description": "One entry per mutant in the run, in the report's order.\n\n`default` without the empty-skip the other lists in these contracts use, and\ndeliberately: one entry per mutant is what this list is for, so a bundle that\nomitted it would read as a bundle of no mutants rather than as a shorter list.",
       "type": "array",
       "default": [],
       "items": {
@@ -15,6 +15,18 @@
     "base": {
       "description": "The checkout a patch applies to.",
       "$ref": "#/$defs/Base"
+    },
+    "baseline_log": {
+      "description": "What the suite printed with nothing mutated, or `null` when no log travels.\n\nIts own field because it belongs to no mutant: it is the run-wide log a reader\ncompares every mutant's output against, and nothing under [`BundleIndex::attachments`]\ncould hold it. Written even when absent, for the same reason\n[`Attachment::log`] is: \"no log travelled\" is a fact about the bundle.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Attached"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "documents": {
       "description": "The contract documents, each with the hash of the bytes as packaged.",
@@ -150,7 +162,7 @@
       ]
     },
     "Documents": {
-      "description": "The contract documents a bundle carries, by path and by hash.\n\nFour of them always, because each answers a question the others cannot: the\nreport holds the verdicts, the manifest holds the text and span every mutant\nidentifier is derived from, the results hold the machine-readable execution\nsignals, and the baseline says what the suite did unmutated.",
+      "description": "The contract documents a bundle carries, by path and by hash.\n\nFour of them always, because each answers a question the others cannot: the\nreport holds the verdicts, the manifest holds the text and span every mutant\nidentifier is derived from, the results hold the machine-readable execution\nsignals, and the baseline says what the suite did unmutated.\n\nThe suite's own output is not here. A log is not a contract document — it is\nwhatever a test framework printed — so the logs are named beside the mutant they\nbelong to, or in [`BundleIndex::baseline_log`] when they belong to none.",
       "type": "object",
       "properties": {
         "baseline": {

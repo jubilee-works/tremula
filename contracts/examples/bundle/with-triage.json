@@ -31,8 +31,15 @@
     "reproducible_from_revision": true
   },
   "suite": {
-    "tests": ["tests/test_ranges.py", "tests/test_gaps.py"],
+    "tests": [
+      "tests/test_ranges.py",
+      "tests/test_gaps.py"
+    ],
     "collected": 14
+  },
+  "baseline_log": {
+    "path": "logs/baseline.txt",
+    "sha256": "f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7"
   },
   "attachments": [
     {

@@ -29,6 +29,10 @@
   "suite": {
     "collected": 4
   },
+  "baseline_log": {
+    "path": "logs/baseline.txt",
+    "sha256": "708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f"
+  },
   "attachments": [
     {
       "id": "0e2f8c1d5a4b6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7",

@@ -317,14 +317,15 @@ fn continues(byte: u8) -> bool {
 pub struct Carried {
     /// Whether any of them was shortened.
     pub truncated: bool,
+    /// The unmutated run's own log, when the run kept one. It belongs to no mutant, so
+    /// the index names it on its own rather than under any attachment.
+    pub baseline: Option<Attached>,
 }
 
 /// Write every log the run kept into `staging`, cleaned, and name it in `attachments`.
 ///
-/// The unmutated run's own log travels too. It is not one mutant's, so nothing in the
-/// index names it — a reader is sent to it by the bundle's own starting document, and
-/// the hashes in the index are of the documents and the patches, which is what the index
-/// says they are.
+/// The unmutated run's own log travels too, and comes back separately: a reader compares
+/// a mutant's output against it, and it is the one log no mutant's entry could hold.
 ///
 /// # Errors
 ///
@@ -353,7 +354,7 @@ pub fn attach(
     }
     if let Some(raw) = kept(&from.join(BASELINE_LOG))? {
         let cleaned = clean(machine, &raw);
-        carry(staging, &format!("{LOGS}/{BASELINE_LOG}"), &cleaned)?;
+        carried.baseline = Some(carry(staging, &format!("{LOGS}/{BASELINE_LOG}"), &cleaned)?);
         carried.truncated |= cleaned.truncated;
     }
     Ok(carried)

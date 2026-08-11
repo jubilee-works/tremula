@@ -21,4 +21,4 @@ Reproduce one from a checkout of the project:
 
 Run the suite the run collected — `tests/test_ranges.py` — and write a test that fails while the patch is applied. Revert the patch, keep the test, and `tremula run --manifest manifest.json --project <checkout> --tests tests/test_ranges.py` will report that mutant as killed. That selection collected 4 tests before your test was added, so a checkout collecting far fewer is running something else.
 
-What this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of every document and patch it names.
+What this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of every file in it but itself and this one.
