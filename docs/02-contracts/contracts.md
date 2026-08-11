@@ -22,6 +22,11 @@ Only the report contains verdicts. A pack reports signals and never judges; the
 core judges and never touches a backend. The command lines that carry these
 documents between the two are specified in `contracts/pack-protocol.md`.
 
+`contracts/schemas/` also holds schemas for documents that cross other boundaries —
+`probe`, `triage`, `suppressions`, and `bundle`. They are published on the same
+terms and for the same reason, and **The bundle index** below is about the one of
+them that leaves this repository entirely.
+
 The manifest, baseline, results, and report each carry a `schema_version`, and
 the capabilities document reports the same value under the name
 `contract_version`. The pack error document has no version field of its own: it
@@ -172,6 +177,50 @@ identifiers catches a set that changed size and a set that changed membership.
 The report must contain exactly one verdict per manifest mutant. A missing,
 surplus, or repeated result is an adapter defect, and produces a failure rather
 than a report.
+
+## The bundle index
+
+`bundle.json` is the one document in `contracts/schemas/` that no pack reads. It
+crosses a different boundary: out of this repository altogether, to whoever a run's
+evidence was handed to. That makes its reader the furthest away of any, and the
+`schema_version` and must-ignore rules matter here most.
+
+It is an **index and not a summary**. It carries no verdict and no count of its
+own, for the reason `triage.json` carries no verdict either: a copy is a second
+thing that can be wrong, and a bundle damaged in transit or uploaded in part would
+disagree with itself in a way no consumer could detect. Consumers read
+`documents.report` and check its `sha256`.
+
+| Field | What it is for |
+| --- | --- |
+| `documents` | the four contract documents, plus `triage` when the run was triaged; each `{path, sha256}` |
+| `base` | `revision` (the run's `observed_revision`, `null` outside a checkout), `dirty`, and `reproducible_from_revision` — which is `revision != null && !dirty` |
+| `suite` | `tests`, the selectors the run was given in the order it was given them, and `collected` from the baseline |
+| `attachments` | one per mutant in the report's order: `{id, patch, log, patch_error}`, where `patch` and `log` are `{path, sha256}` or `null` |
+| `exposure` | what kinds of content are in the bundle, four independent facts |
+| `logs_truncated` | whether any log was shortened |
+
+Three things it deliberately does not have. There is no rendered command line: a
+derived string goes stale when a command-line surface changes and nothing fails
+when it does, so `suite.tests` is the selectors themselves and whoever renders a
+command renders it from those. There is no timestamp of its own — the report's
+`started_at` and `finished_at` already have that, and a stamp would make two
+bundles of one run differ. And there is no field naming the function a mutation
+landed in, because no run artefact records one: the location is the report's `span`
+and `location`, and a name is in `triage.json` when a triage was run.
+
+**`exposure` is four booleans and not one.** A single "safe" flag would be a false
+label, since a default bundle carries source context inside every patch and test
+code inside every log. `patch_context` says patches are present, `standalone_logs`
+says log files are, `absolute_paths` says `report.json` still holds the project root
+as it was typed, and `backend_raw_output` is **always true** — `results.json` is
+carried byte for byte and the execution backend's own output, markers and absolute
+paths included, is inside it. Leaving out the log files does not change that, which
+is exactly why the two are separate fields.
+
+`logs/baseline.txt` travels but is named by no field: it is not one mutant's, and
+the hashes in the index are of the documents and the patches, which is what the
+index says they are. `START_HERE.md` sends a reader to it.
 
 ## Exit codes
 

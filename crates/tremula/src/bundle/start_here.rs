@@ -80,7 +80,7 @@ fn reproducing(index: &BundleIndex) -> String {
     };
     let _ = writeln!(
         said,
-        "Run {} and write a test that fails while the patch is applied. Revert the patch, keep the test, and `tremula run --manifest {MANIFEST} --project <checkout>{}` will report that mutant as killed. The unmutated suite collected {} tests; one that collects a different number is not the suite this bundle is about.",
+        "Run {} and write a test that fails while the patch is applied. Revert the patch, keep the test, and `tremula run --manifest {MANIFEST} --project <checkout>{}` will report that mutant as killed. That selection collected {} tests before your test was added, so a checkout collecting far fewer is running something else.",
         suite(index),
         selectors(index),
         index.suite.collected

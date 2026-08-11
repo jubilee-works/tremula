@@ -19,6 +19,6 @@ Reproduce one from a checkout of the project:
     git checkout 9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80
     git apply patches/<mutant-id>.patch
 
-Run the suite the run collected — `tests/test_ranges.py` — and write a test that fails while the patch is applied. Revert the patch, keep the test, and `tremula run --manifest manifest.json --project <checkout> --tests tests/test_ranges.py` will report that mutant as killed. The unmutated suite collected 4 tests; one that collects a different number is not the suite this bundle is about.
+Run the suite the run collected — `tests/test_ranges.py` — and write a test that fails while the patch is applied. Revert the patch, keep the test, and `tremula run --manifest manifest.json --project <checkout> --tests tests/test_ranges.py` will report that mutant as killed. That selection collected 4 tests before your test was added, so a checkout collecting far fewer is running something else.
 
 What this bundle cannot do is run that suite. It carries the evidence and not the project, so every step above needs a checkout of your own. Paths here are relative to this directory, and `bundle.json` holds the SHA-256 of every document and patch it names.
