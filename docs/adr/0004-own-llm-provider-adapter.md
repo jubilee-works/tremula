@@ -47,7 +47,10 @@ adopting it today would trade a few hundred lines we understand for a dependency
 we do not need yet. Revisit when any of these becomes true: three or more
 providers, streaming responses, or provider-side tool calls.
 
-## What was built
+## Implementation note (2026-08-11)
+
+The decision above stands as taken. What was actually built is recorded here
+rather than by editing it, as in 0001 and 0002.
 
 A `MutantGenerator` trait and one implementation of it, against chat completions
 with the answer held to a JSON schema the provider enforces. It came out at the

@@ -1,10 +1,26 @@
 # The Python pack and Cosmic Ray
 
+This chapter is for maintainers of the Python pack and anyone debugging a run
+whose behaviour only makes sense at the Cosmic Ray boundary. It assumes the
+[architecture overview](../01-architecture/overview.md) and the
+[contracts chapter](../02-contracts/contracts.md): those explain what a manifest
+is and what a pack owes the core, and this page explains how Cosmic Ray is made
+to deliver it. The reasons behind the design are recorded in
+[ADR 0001](../adr/0001-cosmic-ray-as-execution-backend.md) and
+[ADR 0002](../adr/0002-rust-core-with-language-packs.md).
+
 The Python language pack does not implement mutation testing. It drives
-[Cosmic Ray](https://github.com/sixty-north/cosmic-ray), reached only through the
-plugin points Cosmic Ray publishes, and translates what comes back into the
-neutral signals the core judges. Nothing in the core knows Cosmic Ray exists;
-nothing outside `packs/python` does either.
+[Cosmic Ray](https://github.com/sixty-north/cosmic-ray) and translates what comes
+back into the neutral signals the core judges. The pack launches Cosmic Ray
+through its CLI and registers its operator through the published plugin entry
+point. It also uses internal work-database, configuration, and operator-discovery
+APIs to bind manifest mutants to work items and recover results. Those
+dependencies are isolated inside `packs/python`; nothing in the core knows
+Cosmic Ray exists.
+
+[ADR 0001](../adr/0001-cosmic-ray-as-execution-backend.md) records the original
+public-API-only decision. The implementation note in that record explains why
+the adapter now uses a narrow set of internal APIs instead.
 
 Cosmic Ray decides *what* to mutate by scanning for patterns. tremula is told
 what to mutate by a manifest. Most of this chapter is about the three places
@@ -51,7 +67,7 @@ that never had a chance.
 Cosmic Ray enforces a limit of its own and reports a timed-out job by discarding
 whatever the job printed. That is a problem, because everything the pack learns
 about a run arrives on stdout: the pack's test runner prints a summary as its last
-line, prefixed `TREMULA-RESULT: `, and only the last such line is trusted.
+line, prefixed `TREMULA-RESULT:`, and only the last such line is trusted.
 
 So the runner is given the effective limit and Cosmic Ray is given ten seconds
 more. A hanging suite is then normally stopped by the runner, which has time to
@@ -113,12 +129,15 @@ instead of one being picked.
 
 ## Version range
 
-The pack depends on behaviour of Cosmic Ray 8.4.x that is not part of any
-published API: how a timed-out job is recorded, that standard error is discarded,
-how skipped jobs are marked, and that operator arguments round-trip through the
-work database as JSON. It therefore pins `cosmic_ray>=8.4.6,<8.5` and its preflight
-refuses to run against an installed version outside that range. Widening the range
-means re-running the tests that assert those behaviours directly.
+The pack depends on APIs and behaviour of Cosmic Ray 8.4.x that are not
+published as stable contracts. Direct dependencies include work-database
+operations, configuration serialization, and operator discovery. Behavioural
+dependencies include how a timed-out job is recorded, that standard error is
+discarded, how skipped jobs are marked, and that operator arguments round-trip
+through the work database as JSON. The pack therefore pins
+`cosmic_ray>=8.4.6,<8.5`, and preflight refuses an installed version outside that
+range. Widening the range requires re-running the tests that assert those
+dependencies directly.
 
 The code is authoritative. Where this page and `packs/python/src` disagree, the
 code is right and this page is a bug.

@@ -10,8 +10,8 @@ against a schema in `contracts/schemas/`.
 The core resolves an interpreter or executable for the target project and calls
 the pack with one subcommand. The Python pack is invoked as:
 
-```
-<python> -m tremula_python <subcommand> [options]
+```text
+<python> -I -m tremula_python <subcommand> [options]
 ```
 
 ## Subcommands
@@ -24,8 +24,8 @@ mismatch. `validate_checks` names the checks this pack's `validate` performs, so
 a newer core can tell whether the checks it wants are available.
 
 `subcommands` lists the work subcommands below — `validate`, `run`, `collect`,
-`spans`. `--capabilities` is not among them: it is the handshake that produces the
-document, and every pack is required to answer it.
+`spans`, `probe`. `--capabilities` is not among them: it is the handshake that
+produces the document, and every pack is required to answer it.
 
 A core requires the subcommands it needs, not every subcommand the pack lists, so
 a pack that grows one stays usable by a core that has never heard of it.
@@ -39,35 +39,17 @@ The checks a pack reports through `validate_checks`, as the Python pack
 implements them:
 
 - `compiles_in_file` — the target file, with the replacement put in the span's
-  place, still compiles. A replacement is judged by the file it makes and not by
-  itself, because reading it alone answers a different question: `return errors`
-  is no module and compiles as nothing on its own, while being exactly right
-  inside a function. The file that is checked is the file the run produces —
-  the pack splices it the same way the backend's operator does, newline shaping
-  included — so a mutant this check accepts is one the backend can really apply.
-  It is a compile rather than a parse: a parse accepts a function with two
-  parameters of the same name, and the interpreter does not.
-- `single_statement` — it is one top-level statement, since it has to stand in
-  for one node.
+  place, still compiles.
+- `single_statement` — the replacement is one top-level statement, since it has
+  to stand in for one node.
 - `round_trips` — reinjecting the parsed replacement loses none of its text.
-  This is losslessness after newline normalization, not byte-for-byte equality:
-  a replacement is compared with its trailing newlines stripped, because the
-  span it replaces normally stops before the line's newline and both spellings
-  have to produce the same file. What the check does catch is text a parser
-  attaches to a node's surroundings rather than to the node — trailing comments,
-  leading comments, blank lines — which would silently vanish on injection.
 - `span_matches_node` — the manifest's byte span lines up with a node the
-  backend can match, so a mutant that produces no work item means a real adapter
-  bug rather than a span that never had a chance. A compound statement's node
-  ends after the newline that closes it, so a span aimed at one has to take that
-  newline in; a span over a bare `if` or `while` header lines up with nothing,
-  whatever else is right about it.
-- `ast_equal` — the mutated file's syntax tree differs from the original's. A
-  replacement that only regroups an expression makes a different file and the
-  same program, and reporting such a mutant as survived would blame a test suite
-  for a difference that is not there. This is the validator rule that keeps a
-  syntactically identical mutation out of a report, and it applies to every
-  manifest — one a person wrote as much as one a generator produced.
+  backend can match.
+- `ast_equal` — the mutated file's syntax tree differs from the original's.
+
+What each check exists to catch, and the measurements behind judging a
+replacement by the file it makes, are in the
+[contracts chapter](../docs/02-contracts/contracts.md#validation).
 
 ### `run --manifest <path> --project <dir> --out <run-dir> [--tests <path>] [--timeout <seconds>]`
 
@@ -79,9 +61,11 @@ completed, 2 on infrastructure failure.
 run identifier the documents carry. `--tests` may be repeated, and each value is
 passed to the test runner as given; omitting it leaves the project's own default
 collection in place. `--timeout` is a positive number of seconds and applies to
-each run of the suite; omitted, it is derived from how long the baseline took. Verdicts are not the pack's business: an attempt that
-produced no judgement is reported through `execution_status`, and an unusable
-baseline through the error channel below.
+each run of the suite; omitted, it is derived from how long the baseline took.
+
+Verdicts are not the pack's business: an attempt that produced no judgement is
+reported through `execution_status`, and an unusable baseline through the error
+channel below.
 
 A mutant a run cannot apply is left out of the run and reported, not allowed to
 end it. Every mutant the manifest names still gets an entry in `results.json`, in
@@ -135,7 +119,8 @@ rule: `None`, a boolean, a number, a string, a bytestring, or a list, tuple, set
 dict built out of those, with a leading `-` allowed on a number. Everything else is
 refused — an attribute, a name from the module, an unpacking, an arithmetic
 expression, and **any call inside the call**, `set()` included, empty though it is.
-A witness of more than **500 pieces of syntax** is refused as well: it is not one a
+A witness of more than **500 pieces of syntax**, its own function name
+counted, is refused as well: it is not one a
 person would read, and reading a hundred thousand elements is work no single
 survivor is worth. No part of a witness is ever executed as code: the arguments are
 read, not evaluated. Only a function the module defines at its own top level is
@@ -456,18 +441,9 @@ same.
 ## Compatibility
 
 Documents carry `schema_version`; capability and pack metadata report the same
-value as `contract_version`. Consumers ignore unknown fields, so new fields are
-compatible.
-
-New enum values are compatible where the enum defines an `unknown` value: a
-failure's `stage` and an excluded span's `kind` both do, and a consumer reads
-anything it does not recognise as `unknown`. Their schemas are written to match,
-constraining such a value to a string and listing this version's values in the
-description only — a schema that enumerated them would have a validator reject the
-documents the fallback exists to keep readable. Where an enum defines no such
-value — `language`, which selects the pack — its schema does enumerate them, and a
-new value breaks older consumers on purpose, because an unknown language has no
-pack that could run it.
-
-That fallback is what a consumer owes the document, not a licence for a producer: a
-pack still emits only the values its declared contract version defines.
+value as `contract_version`. The rules for adding fields, enum values, and
+optional-field spellings are in the
+[contracts chapter](../docs/02-contracts/contracts.md#compatibility-and-evolution).
+That tolerance is what a consumer owes the document, not a licence for a
+producer: a pack still emits only the values its declared contract version
+defines.

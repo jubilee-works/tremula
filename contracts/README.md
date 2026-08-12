@@ -6,15 +6,16 @@ except the command lines in [pack-protocol.md](pack-protocol.md).
 
 ## `schemas/`
 
-JSON Schema (draft 2020-12) for every document: `manifest`, `results`,
-`baseline`, `report`, `capabilities`, `pack-error`, and `spans`.
+JSON Schema (draft 2020-12) for every document: `manifest`, `spans`,
+`capabilities`, `probe`, `baseline`, `results`, `report`, `pack-error`, `triage`,
+`suppressions`, and `bundle`.
 
 **These files are generated — do not edit them by hand.** They are produced from
 the Rust types in `crates/tremula-contracts/src/`, which are the source of
 truth, including their doc comments: each becomes the `description` of the field
 it documents. Change a type, then regenerate:
 
-```
+```sh
 just contracts
 ```
 
@@ -48,25 +49,9 @@ for serialization to drift unseen. Editing one by hand makes it wrong.
 
 ## Writing a producer
 
-Three conventions are easy to get wrong:
-
-- **Optional fields may be omitted or sent as `null`; both mean absent.**
-  Producers also differ in whether they emit an empty optional map such as
-  `provenance` or `backend_raw` as `{}` or leave the key out entirely. Both are
-  valid, and consumers must treat them identically.
-- **Ignore unknown fields.** Adding a field is a compatible change, so a
-  consumer that rejects unknown keys will break on the next minor version.
-- **Ignore unknown enum values, where the enum says to.** An enum whose value set
-  includes `unknown` expects a consumer to read anything else as `unknown` rather
-  than reject the document — that is what lets a value be added later, and the
-  `stage` of a failure report and the `kind` of an excluded span both work this
-  way. The schema of such an enum says `"type": "string"` and nothing more, so a
-  consumer that validates before it parses accepts the same documents its parser
-  does; the values this version defines are named in the enum's `description`
-  instead, where they inform a reader without binding a later producer. An enum
-  without an `unknown` value, such as `language`, does *not* work this way: its
-  schema lists its values, and a consumer that meets one it does not know has to
-  refuse, because an unknown language has no pack that can run it.
+The compatibility rules a producer and consumer share — unknown fields,
+extensible enums, and how optional fields are spelled — are specified once, in
+the [contracts chapter](../docs/02-contracts/contracts.md#compatibility-and-evolution).
 
 A mutant's `provenance` is free-form, but the keys a generator writes into it are
 conventional. [pack-protocol.md](pack-protocol.md) says what they are.

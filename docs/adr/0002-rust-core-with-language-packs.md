@@ -4,6 +4,20 @@
 
 Accepted
 
+## Implementation note (2026-08-11)
+
+The core-pack process boundary remains the architecture. Its inventory has
+grown beyond the six schemas named in the original decision: `spans` and
+`probe` now cross that boundary, and triage, suppressions, and bundle documents
+serve adjacent public boundaries. The current inventory lives in
+[Contracts](../02-contracts/contracts.md).
+
+The core also grew beyond the initially expected validator, decision table, and
+report writer. It now owns generation, provider adapters, project locking,
+triage, dismissals, recovery, and bundle publication. Those additions preserve
+the decision's central rule: language-specific parsing and test execution stay
+behind the pack protocol, while language-neutral policy stays in the core.
+
 ## Context
 
 Mutation testing splits cleanly into two kinds of work. One kind is

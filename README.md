@@ -1,238 +1,124 @@
 # tremula
 
-Plant realistic bugs in your code and see if your tests tremble.
+**English** | [한국어](README.ko.md) | [日本語](README.ja.md)
+
+**Plant realistic bugs in your code — and see if your tests tremble.**
 
 tremula runs externally defined mutants against your test suite and reports
-which ones survive — evidence of gaps your tests don't cover.
+which ones survive: evidence of the gaps your tests don't cover.
 
-> Early development. Not ready for use.
+> [!NOTE]
+> Early development. The packages are not published yet, and interfaces may
+> change.
+
+## Why tremula
+
+- **You decide what to mutate.** A manifest names the file, the exact byte
+  span, and the replacement — written by hand or proposed by a model. No
+  pattern scanner flooding you with mutants nobody asked for.
+- **One definition of "killed".** A Rust core decides every verdict from
+  neutral signals; language packs only run the suite and report what happened.
+  Two languages can never disagree about what a detection is.
+- **Survivors are sorted by experiment, not by a model's word.** `tremula
+  triage` asks a model for an input that might tell a survivor apart — then
+  runs it against both versions of the function and reports what each did.
+- **Evidence you can hand over.** `tremula bundle` packages a run's report,
+  patches, and logs into a hash-indexed directory a colleague or a coding
+  agent can reproduce from.
+
+## Install from source
+
+tremula supports Python 3.10 or newer through the Python language pack and
+Cosmic Ray. Neither package is on PyPI yet, so install both from a clone of
+this repository into the project you want to measure:
+
+```sh
+uv add --dev --editable /path/to/tremula /path/to/tremula/packs/python
+uv run tremula --version
+```
+
+This keeps the CLI and language pack in the same project environment as the
+test suite.
 
 ## Quickstart
 
-tremula needs two things in the project you are measuring: the language pack,
-installed in the same environment as the test suite, and a manifest saying what
-to mutate.
-
-```sh
-uv add --dev tremula-python
-```
-
-A manifest names a file, the byte range to replace, and what to replace it with.
-You can write one by hand, or ask a model for one:
+A run needs a manifest that says what to mutate. Write one by hand, or ask a
+model for one, then validate and run it:
 
 ```sh
 export OPENAI_API_KEY=...
-tremula generate --file schedule.py --function overlaps \
+uv run tremula generate --file schedule.py --function overlaps \
   --tests test_schedule.py --model gpt-5.2-2025-12-11
+uv run tremula validate --manifest tremula-manifest.json
+uv run tremula run --manifest tremula-manifest.json
 ```
 
-```
-tremula generate · schedule.py · 1 function(s) · model: gpt-5.2-2025-12-11
-
-  overlaps: 4 proposed · 3 recorded · refused: original_ambiguous ×1
-
-wrote 3 mutant(s) to /path/to/project/tremula-manifest.json
-tokens: 682 prompt · 436 completion · 1118 total
-exit 0 (3 mutant(s) to run)
-```
-
-Every function to mutate is named — there is no automatic choice of what is worth
-mutating yet — and `--tests` names test *files*, which are read and shown to the
-model so that it aims past what your suite already catches. An existing manifest
-is never written over. What the model proposes is checked against your file and
-your language before it is written down, so `refused` is ordinary rather than
-alarming; the mutations that survive are the ones a run can actually apply.
-
-**Asking a model costs money and sends the named files to its provider.** Nothing
-else in tremula makes a network call.
-
-Every mutant's `id` is derived from the file, the span, the file's hash and the
-replacement, so the same mutation always has the same identifier — see
-`contracts/schemas/manifest.schema.json` for the derivation and the rest of the
-rules.
-
-```json
-{
-  "schema_version": "0.1",
-  "language": "python",
-  "base": { "revision": null },
-  "mutants": [
-    {
-      "id": "0d7ba921a4a8a2f3b1e0c9d8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e1f0a9b8",
-      "file": "schedule.py",
-      "base_file_sha256": "9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8f0a2b",
-      "span": { "start_byte": 247, "end_byte": 264 },
-      "original": "other_start < end",
-      "replacement": "other_start <= end",
-      "description": "treats a range that only touches as overlapping"
-    }
-  ]
-}
-```
-
-Check it before running it — this compares the manifest against the bytes on
-disk and needs nothing installed:
-
-```sh
-tremula validate --manifest tremula-manifest.json
-```
-
-Then run it:
-
-```sh
-tremula run --manifest tremula-manifest.json
-```
-
-```
-tremula run · 2 mutants · project: .
+```text
+tremula run · 3 mutants · project: .
 baseline: 3 passed in 0.8s ✓ (collected=3)
 
   id        file             span      verdict    detail
   0d7ba921  schedule.py      247–264   KILLED     1 failed
   96c8983f  schedule.py      395–408   SURVIVED   3 passed
+  1f3a9d2e  schedule.py      511–528   SURVIVED   3 passed
 
-score: 1/2 killed (0 timeout) · 1 survived · 0 excluded
+score: 1/3 killed (0 timeout) · 2 survived · 0 excluded
 note: SURVIVED = not killed by the existing suite (execution/coverage unverified)
 exit 1 (survived present)
 next: 1. `tremula triage --model <model>` sorts the survivors, then 2. `tremula bundle` packages this run's evidence for somebody else — in that order, so the triage travels with it
 run_dir=/path/to/project/.tremula/runs/20260809T041500Z-3b1f8c
 ```
 
-`0` means nothing survived, `1` means something did, and `2` means the run could
-not be trusted. The last line of output is the run's directory, which holds
-`report.json` — the verdicts, the score, and the exit code, for anything reading
-this by machine rather than by eye.
-
-Add `.tremula/` to the project's `.gitignore`. Runs are written inside the
-project, and committing them would also make every later run see a modified
-working tree.
-
-Mutants are applied in place, so a run that is killed outright can leave one in
-your sources. `tremula restore` puts them back from the run's own snapshot, and a
-run that fails with the sources modified prints the exact command for itself.
-
-## What to do with a survivor
-
-A survivor means your suite did not catch that mutation. It does not mean the
-mutation could have been caught: some mutations cannot change what the program
-does at all, and a list that mixes the two is a list nobody reads twice. `tremula
-triage` sorts them, by asking a model whether each one can change anything and
-then **running** the input it names against both versions of the function:
+`0` means nothing survived, `1` means something did, and `2` means the run
+could not be trusted. When something survives, sort it before reading it, then
+package the evidence:
 
 ```sh
-tremula triage --model gpt-5.2-2025-12-11
+uv run tremula triage --model gpt-5.2-2025-12-11
+uv run tremula bundle
 ```
 
-```
-tremula triage · run 20260809T041500Z-3b1f8c · 2 survivor(s) · model: gpt-5.2-2025-12-11
+> [!WARNING]
+> **Asking a model costs money and sends the named files to its provider.**
+> Only `generate` and `triage` make network calls.
+>
+> **A manifest is code you are about to execute.** Every `replacement` runs as
+> part of your test suite, so only run manifests you trust.
+>
+> **Mutants are applied in place.** A run that is stopped outright can leave
+> one in your sources. `tremula restore` puts them back from the run's own
+> snapshot, and a run that fails with the sources modified prints the exact
+> restore command for that run.
 
-distinguished at function level (1):
-  96c8983f  schedule.py  395–408
-    minutes >= 60 → minutes > 60
-    `needs_break(60)` told the two apart: True against False
+Add `.tremula/` and `tremula-bundle-*` to the project's `.gitignore`. Runs are
+written inside the project, and committing them makes every later run see a
+modified working tree.
 
-undecided (1):
-  1f3a9d2e  schedule.py  247–264
-    other_start < end → other_start < end and True
-    `overlaps(0, 30, 30, 60)` did not tell the two apart, which is not evidence that nothing would
+## Where to go next
 
-score: 1 distinguished at function level · 0 suspected equivalent · 1 undecided
-```
+| Task | Guide |
+| --- | --- |
+| Set up and complete a first run, including recovery | [Run your first mutation test](docs/guides/first-run.md) |
+| Understand triage results and dismiss a survivor | [Review and dismiss survivors](docs/guides/survivor-review.md) |
+| Package a run for a colleague or a coding agent | [Share an evidence bundle](docs/guides/bundle-sharing.md) |
+| Architecture, contracts, and decision records | [Documentation index](docs/README.md) |
 
-Read those names literally. **Distinguished at function level** means one input
-made the two versions of that function do different things — not that your program
-can reach that input. **Suspected equivalent** is a model's suggestion and nothing
-more: it said the mutation changes nothing, and *nothing ran to check it*. Verify
-one before you dismiss it — in this repository's own measurement over 38
-hand-labelled mutations, one mutation that really does change behaviour landed
-there. And an input that showed no difference is not evidence that no input would.
+Generated JSON Schemas and shared examples live in
+[`contracts/`](contracts/README.md). The linked documentation is in English.
 
-None of this discards anything, on purpose: a filter that wrongly drops a real gap
-in your suite destroys the only evidence this tool produces, while one that
-wrongly keeps a harmless mutation costs you a minute. So the deciding is yours:
+## Development
+
+Set up the repository and run the same checks used in CI:
 
 ```sh
-tremula dismiss 1f3a9d2e --reason equivalent --note "`and True` cannot change a boolean"
+uv sync
+just lint
+just test
+just e2e
 ```
 
-That writes the mutation into `tremula-suppressions.json`. **Commit it** — it is
-your project's decision, and a decision one machine remembers is one the next
-person makes again. Afterwards `generate` will not propose that mutation and
-`triage` will not ask about it. The record keys on the mutation itself rather than
-on the mutant's identifier, so it keeps working across edits that change every
-identifier in the file; a decision whose text is no longer in the file is reported
-as stale and kept, never quietly dropped.
-
-Triage costs one model call per survivor and needs the language pack, since
-running an input is language work. Its exit code is `0` whenever the judging
-happened, whatever it decided, and `2` when it could not happen at all — it is
-information, not a gate.
-
-## Handing the evidence to somebody else
-
-A run directory is a working space: it holds the execution backend's own database,
-a generated configuration, and a copy of your sources. `tremula bundle` copies out
-the part that is evidence and checks it:
-
-```sh
-tremula bundle
-```
-
-```
-tremula bundle · run 20260809T041500Z-3b1f8c · project: sample_project
-
-  documents: report.json, manifest.json, results.json, baseline.json, triage.json
-  patches: 2 of 2 mutant(s)
-  logs: 3 file(s), machine paths removed
-  exposure: source context in patches · test output as log files · backend output inside results.json · absolute paths in report.json
-  base: 9f1c0a3d5e7b2f4a6c8d0e2f4a6b8c0d2e4f6a80 — a checkout of it reproduces what was measured
-
-wrote /path/to/project/tremula-bundle-20260809T041500Z-3b1f8c
-next: hand this directory over; `START_HERE.md` in it says how to read it
-exit 0 (2 mutant(s) packaged)
-```
-
-Add `tremula-bundle-*` to the project's `.gitignore` — the default output is the
-project root.
-
-The directory holds the four contract documents byte for byte, `triage.json` if you
-triaged, one `git apply`-ready patch per mutant, the suite's output per mutant and for
-the unmutated run, and `bundle.json` indexing all of it with a SHA-256 for each — every
-file in the bundle except `bundle.json` and `START_HERE.md`, which are what describe
-the rest. Each hash is checked against the bytes on disk before the bundle is
-published. Every patch was offered to `git apply --check` against the bytes the run
-measured before it was written, so one that is missing is one git refused, with the
-reason in the index. `START_HERE.md` says which order to read the documents in —
-starting from the triage where there is one — and gives the commands that reproduce
-one mutation and then kill it. Each of them names the directory it acts on, and asks
-the reader to substitute two: the bundle itself and a checkout of their own. It is the
-file to point a coding agent at.
-
-Run it after `triage` rather than before, so `triage.json` travels with the rest. An
-existing path is never written over: the directory is assembled beside where it goes
-under a name belonging to that one attempt, and the output path is then taken by
-creating it — one operation the filesystem either performs or refuses, so two bundles
-asked for at one path cannot both believe they have it. The finished directory is
-moved onto the empty one that claim made, so the published path is complete or absent
-and never half-built.
-
-Logs are cleaned before they travel: your home directory, the project root, the run
-directory and the temporary directory all come out, in both the spelling they were
-given and the one they resolve to, and so do tremula's own protocol lines. Anything
-over 64 KiB keeps its first and last 32 KiB with a note saying how much went. What
-does **not** come out is `results.json`, which is carried byte for byte and holds
-the backend's raw output — `exposure.backend_raw_output` is always true, and
-`--no-logs` leaves out the log files without changing that. Read `exposure` before
-uploading a bundle anywhere.
-
-Exit `0` when it was packaged, `2` when it could not be — including when a
-survivor's patch does not apply, since reproducing a survivor is the point. The
-bundle is still written in that case, and the console says it is kept and not
-complete for reproduction rather than telling you to send it. A run that tested
-nothing exits `0` and writes no bundle.
-
-**A manifest is code you are about to execute.** Every `replacement` runs as part
-of your test suite, so only run manifests you trust.
+Run `just contracts` after changing a Rust contract type. `just build` creates
+the distributable wheel in `dist/`.
 
 ## License
 
