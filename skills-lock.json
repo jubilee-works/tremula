@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "accelint-english-manager": {
+      "source": "gohypergiant/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/accelint-english-manager/SKILL.md",
+      "computedHash": "08448cf8ff26234e6179fa9a3ca92d297c82f8532b17ec126dd4a77a50307de8"
+    },
+    "accelint-readme-writer": {
+      "source": "gohypergiant/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/accelint-readme-writer/SKILL.md",
+      "computedHash": "5eb97e67f864aac6a1d30505fee7056b82c35647429886a4864594b59b59e3ae"
+    }
+  }
+}
