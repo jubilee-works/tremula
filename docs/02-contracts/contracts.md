@@ -1,18 +1,21 @@
 # Contracts
 
-Everything that crosses the boundary between the tremula core and a language
-pack is a JSON document with a published schema. This chapter explains what each
+Every document that crosses the boundary between the tremula core and a
+language pack is JSON with a published schema. This chapter explains what each
 document is for and the semantics a producer has to get right. The schemas
 themselves live in `contracts/schemas/`, are generated from the core's types,
 and are the authority whenever this page and they disagree.
+The [contract directory](../../contracts/README.md) explains how the schemas and
+shared examples are checked.
 
-## The seven documents
+## The eight execution documents
 
 | Document | Written by | Read by | Answers |
 | --- | --- | --- | --- |
 | `manifest` | whoever decides the mutations | core, pack | What should be mutated, and where? |
 | `spans` | pack | whoever decides the mutations | Where are this file's functions, and what inside them is not a target? |
 | `capabilities` | pack | core | Which contract version and subcommands does this pack support? |
+| `probe` | pack | core | Did one input make the original and mutated function behave differently? |
 | `baseline` | pack | core | What did the suite do with no mutation applied? |
 | `results` | pack | core | What happened to each mutant, in neutral terms? |
 | `report` | core | machines, people | What is the verdict, the score, and the exit code? |
@@ -20,12 +23,13 @@ and are the authority whenever this page and they disagree.
 
 Only the report contains verdicts. A pack reports signals and never judges; the
 core judges and never touches a backend. The command lines that carry these
-documents between the two are specified in `contracts/pack-protocol.md`.
+documents between the two are specified in the
+[pack protocol](../../contracts/pack-protocol.md).
 
 `contracts/schemas/` also holds schemas for documents that cross other boundaries —
-`probe`, `triage`, `suppressions`, and `bundle`. They are published on the same
-terms and for the same reason, and **The bundle index** below is about the one of
-them that leaves this repository entirely.
+`triage`, `suppressions`, and `bundle`. They are published on the same terms and
+for the same reason, and **The bundle index** below is about the one of them that
+leaves this repository entirely.
 
 The manifest, baseline, results, and report each carry a `schema_version`, and
 the capabilities document reports the same value under the name
@@ -79,7 +83,7 @@ A mutant's `id` is derived from its own content, so that any producer — a
 generator, a second execution backend, a consumer of the evidence — computes the
 same identifier for the same mutation:
 
-```
+```text
 sha256("tremula/mutant/v1" NUL file NUL start_byte NUL end_byte NUL
        base_file_sha256 NUL replacement)
 ```
@@ -119,14 +123,46 @@ original's. A pack reports which of these checks it implements through
 `validate_checks` in its capabilities document, so a newer core can tell whether
 the checks it wants are available.
 
-A replacement is judged by the file it makes rather than on its own, which is
-measured: of 144 proposals in one sweep, 34 were refused for not parsing alone and
-every one of them compiled once spliced in, while two that parsed alone broke the
-file they went into. Sixteen of the 34 are still refused, by arity and by the node
+Each of the four language checks exists for a measured reason.
+
+**`compiles_in_file` judges the file, not the fragment.** Reading a replacement
+alone answers a different question: `return errors` is no module and compiles as
+nothing on its own, while being exactly right inside a function. The file that is
+checked is the file the run produces — the pack splices it the same way the
+backend's operator does, newline shaping included — so a mutant this check
+accepts is one the backend can really apply. It is a compile rather than a
+parse: a parse accepts a function with two parameters of the same name, and the
+interpreter does not.
+
+**`round_trips` is losslessness after newline normalisation, not byte-for-byte
+equality.** A replacement is compared with its trailing newlines stripped,
+because the span it replaces normally stops before the line's newline and both
+spellings have to produce the same file. What the check does catch is text a
+parser attaches to a node's surroundings rather than to the node — trailing
+comments, leading comments, blank lines — which would silently vanish on
+injection.
+
+**`span_matches_node` is what gives a missing work item its meaning.** A
+compound statement's node ends after the newline that closes it, so a span aimed
+at one has to take that newline in — into `original` as well, since the two are
+the same bytes; a span over a bare `if` or `while` header
+lines up with nothing, whatever else is right about it. With spans pre-checked,
+a mutant that produces no job is an adapter defect rather than a span that never
+had a chance.
+
+**`ast_equal` keeps a syntactically identical mutation out of a report.** A
+replacement that only regroups an expression makes a different file and the same
+program, and reporting such a mutant as survived would blame a test suite for a
+difference that is not there. The rule applies to every manifest — one a person
+wrote as much as one a generator produced.
+
+Judging a replacement by the file it makes is measured, not just principled: of
+144 proposals in one sweep, 34 were refused for not parsing alone and every one
+of them compiled once spliced in, while two that parsed alone broke the file
+they went into. Sixteen of the 34 are still refused, by not being a single
+statement and by the node
 boundary, because a bare compound-statement header is not a node any manifest can
-replace. And a compound statement's node ends *after* the newline that closes it,
-so a span aimed at one takes that newline in — into `original` as well, since the
-two are the same bytes.
+replace.
 
 A mutant the pack refuses during a `run` is left out of the run rather than ending
 it: it is reported as `not_applied` with the reason under `backend_raw.refusal`,
@@ -218,9 +254,10 @@ carried byte for byte and the execution backend's own output, markers and absolu
 paths included, is inside it. Leaving out the log files does not change that, which
 is exactly why the two are separate fields.
 
-`logs/baseline.txt` travels but is named by no field: it is not one mutant's, and
-the hashes in the index are of the documents and the patches, which is what the
-index says they are. `START_HERE.md` sends a reader to it.
+`baseline_log` names and hashes `logs/baseline.txt` when that log is present.
+Each mutant attachment does the same for its patch and optional log. The index
+therefore authenticates every carried evidence file except itself and
+`START_HERE.md`.
 
 ## Exit codes
 
@@ -242,7 +279,7 @@ mutant with an environment problem is exit 1. Three survivors alongside one
 mutation that never landed is exit 2, because a mutation that was validated and
 then never applied is a defect in tremula, not in the project under test.
 
-## Evolution
+## Compatibility and evolution
 
 Adding a field is a compatible change, and consumers must ignore fields they do
 not recognise. Adding a value to an existing enum is compatible on the same
@@ -250,6 +287,13 @@ terms, but only where the enum defines an `unknown` value for consumers to fall
 back on — a failure's `stage` and an excluded span's `kind` both do. Where it
 does not, as with `language`, an unknown value genuinely means "no pack for
 this", and rejecting the document is the right answer.
+
+The schemas are written to match that rule. An extensible enum's schema says
+only `"type": "string"`, with this version's values recorded in the field's
+`description` rather than enumerated — a schema that enumerated them would have
+a validator reject the documents the fallback exists to keep readable. An enum
+without an `unknown` value, such as `language`, does enumerate its values,
+because a consumer that meets one it does not know has to refuse.
 
 Optional fields may be omitted or sent as `null`, and both mean absent.
 Producers also differ over whether an empty optional map such as `provenance` or

@@ -2,7 +2,21 @@
 
 ## Status
 
-Accepted
+Accepted, with the public-API-only constraint amended below
+
+## Implementation note (2026-08-11)
+
+Cosmic Ray remains the Python execution backend, and the narrow version pin
+remains part of the decision. The completed adapter launches Cosmic Ray through
+its CLI and registers the tremula operator through the published plugin entry
+point, but targeted execution also requires a narrow set of internal APIs:
+work-database operations, configuration serialization, and operator discovery.
+
+Those calls stay inside `packs/python` and are covered by integration tests
+against the pinned 8.4.x range. This note records the implemented boundary
+without rewriting the original decision below. The current integration is
+described in
+[The Python pack and Cosmic Ray](../03-python-backend/cosmic-ray.md).
 
 ## Context
 
