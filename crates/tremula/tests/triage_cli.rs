@@ -9,7 +9,11 @@
 
 mod triage_fixture;
 
-use std::sync::{Mutex, PoisonError};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::{Mutex, PoisonError},
+};
 
 use tremula::{
     console,
@@ -23,6 +27,7 @@ use tremula::{
     triage::{self, assess, failures::TriageFailure, inputs},
 };
 use tremula_contracts::{
+    manifest::Manifest,
     suppressions::{DismissalReason, Suppression, Suppressions},
     triage::{Claim, Classification, Undecided},
 };
@@ -373,8 +378,9 @@ fn a_survivor_already_dismissed_is_accounted_for_and_never_asked_about() {
     assert!(rendered.contains("already dismissed (1)"), "{rendered}");
 }
 
-/// A record of decisions that cannot be read is a failure before the first call and
-/// never after it: the whole reason it is read this early.
+/// A record of decisions that cannot be read fails before the first judge call. This
+/// specific input error cannot surface after judging because the record is loaded once,
+/// before any survivor is classified.
 #[test]
 fn a_record_of_decisions_that_cannot_be_read_stops_the_triage_before_it_pays() {
     let fixture = RunFixture::of(&one_survivor());
@@ -397,11 +403,12 @@ fn a_record_of_decisions_that_cannot_be_read_stops_the_triage_before_it_pays() {
 
 /// The two exit codes a triage has, through the path the command line takes.
 ///
-/// Zero when the judging happened, *whatever it decided*: a triage that established
-/// nothing about anything has told the reader something, and a command that exited
-/// non-zero for it would be a gate this one is not. Two when the judging could not
-/// happen at all, which here is a directory holding two documents of two different
-/// runs — the same code every other operational failure in this tool reports.
+/// Zero when judging and any requested derivative publication completed, *whatever
+/// the classification decided*: a triage that established nothing still told the
+/// reader something. Two reports an operational failure before or during judge
+/// attempts — this test exercises mismatched run documents before judging — or while
+/// filtered manifest publication fails after a completed triage. That publication path
+/// preserves `triage.json` and is covered by the commit-collision test below.
 #[test]
 fn a_completed_triage_exits_zero_whatever_it_classified_and_a_broken_run_exits_two() {
     let fixture = RunFixture::of(&two_survivors());
@@ -433,6 +440,218 @@ fn a_completed_triage_exits_zero_whatever_it_classified_and_a_broken_run_exits_t
         triage::exit_status(&broken.asking(), &Scripted::of(vec![])),
         tremula::triage::EXIT_FAILURE,
     );
+}
+
+#[test]
+fn default_args_keep_current_behavior_and_option_defaults() {
+    let fixture = RunFixture::of(&one_survivor());
+    fixture.pack(&[]);
+    let args = fixture.asking();
+    assert!(!args.exclude_suspected_equivalent);
+    assert_eq!(args.out_manifest, None);
+    let source = fs::read(fixture.run_dir().join("manifest.json")).unwrap();
+
+    let judged = assess(
+        &args,
+        &Scripted::of(vec![Ok(Judgement {
+            claim: Answered::Distinguishable,
+            witness: None,
+        })]),
+    )
+    .unwrap();
+
+    assert_eq!(
+        fs::read(fixture.run_dir().join("manifest.json")).unwrap(),
+        source
+    );
+    assert_eq!(fixture.triage(), judged);
+    let mut artifacts = fs::read_dir(fixture.run_dir())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    artifacts.sort();
+    assert_eq!(
+        artifacts,
+        ["manifest.json", "report.json", "snapshot", "triage.json"]
+    );
+    let rendered = console::render_triage(&judged);
+    assert!(!rendered.contains("filtered manifest:"), "{rendered}");
+    assert!(!rendered.contains("manifest="), "{rendered}");
+}
+
+#[test]
+fn direct_library_call_rejects_each_orphan_option() {
+    let fixture = RunFixture::of(&one_survivor());
+    let mut args = fixture.asking();
+    args.exclude_suspected_equivalent = true;
+    let failure = assess(&args, &Scripted::of(vec![])).unwrap_err();
+    assert!(matches!(failure, TriageFailure::PairedOptions { .. }));
+    assert_eq!(
+        failure.to_string(),
+        "--exclude-suspected-equivalent requires --out-manifest; pass both options or neither"
+    );
+    args.exclude_suspected_equivalent = false;
+    args.out_manifest = Some(PathBuf::from("filtered.json"));
+    let failure = assess(&args, &Scripted::of(vec![])).unwrap_err();
+    assert!(matches!(failure, TriageFailure::PairedOptions { .. }));
+    assert_eq!(
+        failure.to_string(),
+        "--out-manifest requires --exclude-suspected-equivalent; pass both options or neither"
+    );
+}
+
+#[test]
+fn invalid_or_occupied_output_stops_before_environment_pack_or_judge() {
+    let fixture = RunFixture::of(&one_survivor());
+    let judge = Scripted::of(vec![]);
+    let mut asking = fixture.asking();
+    asking.exclude_suspected_equivalent = true;
+    asking.out_manifest = Some(fixture.project().join("missing").join("filtered.json"));
+
+    let failure = assess(&asking, &judge).unwrap_err();
+    assert!(matches!(failure, TriageFailure::OutputUnusable { .. }));
+    assert!(judge.asked().is_empty());
+
+    let occupied = fixture.project().join("occupied.json");
+    fs::write(&occupied, "somebody else's bytes").unwrap();
+    asking.out_manifest = Some(occupied.clone());
+    let failure = assess(&asking, &judge).unwrap_err();
+    assert!(matches!(failure, TriageFailure::OutputExists { .. }));
+    assert!(judge.asked().is_empty());
+    assert_eq!(
+        fs::read_to_string(occupied).unwrap(),
+        "somebody else's bytes"
+    );
+}
+
+#[test]
+fn opt_in_triage_publishes_only_after_evidence_and_preserves_source_artifacts() {
+    let fixture = RunFixture::of(&two_survivors());
+    fixture.pack(&[differs(SEPARATING, "True", "False")]);
+    let source_paths = [
+        fixture.run_dir().join("manifest.json"),
+        fixture.run_dir().join("report.json"),
+        fixture.snapshot().join(FILE),
+    ];
+    let before: Vec<Vec<u8>> = source_paths
+        .iter()
+        .map(fs::read)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let suppressions = fixture.project().join("decisions.json");
+    fs::write(
+        &suppressions,
+        "{\"schema_version\":\"0.1\",\"suppressions\":[]}\n",
+    )
+    .unwrap();
+    let suppressions_before = fs::read(&suppressions).unwrap();
+    let out = fixture.project().join("filtered.json");
+    let mut asking = fixture.asking();
+    asking.suppressions = Some(suppressions.clone());
+    asking.exclude_suspected_equivalent = true;
+    asking.out_manifest = Some(out.clone());
+    let judge = Scripted::of(vec![
+        Ok(Judgement {
+            claim: Answered::Equivalent,
+            witness: None,
+        }),
+        Ok(Judgement {
+            claim: Answered::Distinguishable,
+            witness: Some(Witness {
+                call: SEPARATING.to_owned(),
+                expect_original: "True".to_owned(),
+                expect_mutant: "False".to_owned(),
+            }),
+        }),
+    ]);
+
+    assert_eq!(triage::exit_status(&asking, &judge), 0);
+    let judged = fixture.triage();
+
+    assert_eq!(judged.entries.len(), 2);
+    assert_eq!(
+        judged.entries[0].classification,
+        Classification::SuspectedEquivalent
+    );
+    assert_eq!(
+        judged.entries[1].classification,
+        Classification::DistinguishedAtFunctionLevel
+    );
+    assert_eq!(
+        fixture.triage(),
+        judged,
+        "triage evidence is committed first"
+    );
+    let derivative: Manifest = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
+    assert_eq!(
+        derivative
+            .mutants
+            .iter()
+            .map(|mutant| &mutant.id)
+            .collect::<Vec<_>>(),
+        [&fixture.ids[1]]
+    );
+    let after: Vec<Vec<u8>> = source_paths
+        .iter()
+        .map(fs::read)
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(after, before, "source run artifacts stay byte-identical");
+    assert_eq!(fs::read(suppressions).unwrap(), suppressions_before);
+    assert!(part_files_beside(&out).is_empty());
+}
+
+struct CollidingJudge {
+    scripted: Scripted,
+    destination: PathBuf,
+}
+
+impl EquivalenceJudge for CollidingJudge {
+    fn judge(&self, request: &JudgementRequest) -> Result<JudgementOutcome, JudgeError> {
+        fs::write(&self.destination, "arrived during judging").unwrap();
+        self.scripted.judge(request)
+    }
+}
+
+#[test]
+fn commit_collision_after_judging_keeps_valid_triage_and_leaves_no_part_file() {
+    let fixture = RunFixture::of(&one_survivor());
+    fixture.pack(&[]);
+    let out = fixture.project().join("filtered.json");
+    let mut asking = fixture.asking();
+    asking.exclude_suspected_equivalent = true;
+    asking.out_manifest = Some(out.clone());
+    let judge = CollidingJudge {
+        scripted: Scripted::of(vec![Ok(Judgement {
+            claim: Answered::Equivalent,
+            witness: None,
+        })]),
+        destination: out.clone(),
+    };
+
+    assert_eq!(triage::exit_status(&asking, &judge), triage::EXIT_FAILURE);
+
+    let judged = fixture.triage();
+    assert_eq!(
+        judged.entries[0].classification,
+        Classification::SuspectedEquivalent
+    );
+    assert_eq!(fs::read_to_string(&out).unwrap(), "arrived during judging");
+    assert!(part_files_beside(&out).is_empty());
+}
+
+fn part_files_beside(path: &Path) -> Vec<PathBuf> {
+    fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|entry| {
+            entry
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().contains(".part."))
+        })
+        .collect()
 }
 
 /// A survivor of no function at all is not something a model can be asked about,

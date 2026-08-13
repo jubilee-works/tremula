@@ -14,7 +14,10 @@ use tremula_contracts::{
 
 pub use bundle::render_bundle;
 
-use crate::generate::command::{Generated, exit_code};
+use crate::{
+    generate::command::{Generated, exit_code},
+    triage::filtered_manifest::PublicationSummary,
+};
 
 /// How much of a mutant's identifier is enough to tell it apart on screen.
 const SHORT_ID_CHARS: usize = 8;
@@ -256,6 +259,18 @@ pub fn render_triage(judged: &Triage) -> String {
         judged.spend.calls
     ));
     lines.join("\n")
+}
+
+/// Render the optional artifact made after a completed triage.
+#[must_use]
+pub fn render_filtered_manifest(summary: &PublicationSummary) -> String {
+    format!(
+        "filtered manifest: {}/{} kept · {} suspected equivalent excluded\nmanifest={}",
+        summary.kept_count,
+        summary.source_count,
+        summary.excluded_count,
+        summary.path.display()
+    )
 }
 
 /// A stretch of source as one line, so a table stays a table.

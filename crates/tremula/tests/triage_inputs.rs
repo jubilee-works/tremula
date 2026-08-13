@@ -211,3 +211,22 @@ fn the_survivors_are_read_out_of_the_runs_own_three_documents() {
         "the root a witness runs under is the run's own snapshot, resolved"
     );
 }
+
+#[test]
+fn the_complete_manifest_keeps_original_order_while_survivors_follow_the_report() {
+    let fixture = RunFixture::of(&one_survivor());
+    let env = fixture.pack(&[]);
+
+    let read = inputs::read(&env, &fixture.run_dir()).unwrap();
+
+    assert_eq!(
+        read.manifest
+            .mutants
+            .iter()
+            .map(|mutant| &mutant.id)
+            .collect::<Vec<_>>(),
+        fixture.ids.iter().collect::<Vec<_>>(),
+        "the typed manifest retains every mutant in its original order"
+    );
+    assert_eq!(read.survivors[0].mutant.id, fixture.ids[1]);
+}

@@ -235,6 +235,8 @@ impl Golden {
             python: Some(interpreter()),
             model: MODEL.to_owned(),
             suppressions: Some(self.workspace.path().join("no-decisions.json")),
+            exclude_suspected_equivalent: false,
+            out_manifest: None,
         }
     }
 }

@@ -30,13 +30,29 @@ that showed no difference never becomes `suspected_equivalent`: one input failin
 to separate two functions is not evidence that none can, and treating it as such
 would be believing the very claim it just failed.
 
-Nothing is discarded, because the two mistakes are not the same size. A filter
-that wrongly drops a real gap in a suite destroys the evidence this tool exists to
-produce; one that wrongly keeps a harmless mutation costs somebody a minute. So
-the automatic part establishes what it can, in the order most useful to read, and
-retiring a survivor is a person's act: `tremula dismiss` writes the mutation into
-`tremula-suppressions.json`, which the project commits, and afterwards neither
-`generate` nor `triage` raises it again.
+Ordinary triage discards nothing, because the two mistakes are not the same size.
+A filter that wrongly drops a real gap in a suite destroys the evidence this tool
+exists to produce; one that wrongly keeps a harmless mutation costs somebody a
+minute. An explicit opt-in can write a separate manifest for a next run:
+
+```sh
+tremula triage --model MODEL --exclude-suspected-equivalent \
+  --out-manifest PATH
+```
+
+Both options are required. The projection removes only non-dismissed entries
+classified `suspected_equivalent`. It keeps every other manifest mutant in its
+original order, including distinguished, undecided, killed, timed-out, unknown,
+untriaged, and already dismissed mutants. This is a risky, reversible run-local
+selection, not a finding or a dismissal. The source run's manifest, report, and
+snapshot aren't changed. `triage.json` is written as usual, and the destination
+must be a new file.
+
+The automatic part therefore establishes what it can, in the order most useful to
+read, and retiring a survivor is a person's act: `tremula dismiss` writes the
+mutation into `tremula-suppressions.json`, which the project commits, and
+afterwards neither `generate` nor `triage` raises it again. Deriving a manifest
+doesn't write that record or change its effect.
 
 ## What that comes to, measured
 
@@ -85,9 +101,12 @@ landing there fails rather than passing as the same number.
    arguments and the changed expression. A claim of equivalence ends there, as a
    suspicion. A claim of difference with an input is put to the pack's `probe`,
    which runs both versions and reports what each did.
-5. **Write `triage.json` beside the report**, which is not rewritten. The two
-   documents answer different questions, and a reader has to be able to tell which
-   is which.
+5. **Write `triage.json` beside the report**, which is not rewritten. With the
+   paired opt-in flags, then derive a separate user-named manifest by removing
+   only non-dismissed `suspected_equivalent` entries. The source
+   manifest, report, and snapshot remain immutable; `triage.json` records the
+   classification. The documents answer different questions, and a reader has to
+   be able to tell which is which.
 
 The exit code is `0` whenever the judging happened, whatever it decided — a triage
 that established nothing about anything is information, not a failure — and `2`

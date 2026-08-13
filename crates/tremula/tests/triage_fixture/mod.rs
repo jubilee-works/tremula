@@ -194,6 +194,8 @@ impl RunFixture {
             python: Some(self.interpreter()),
             model: MODEL.to_owned(),
             suppressions: None,
+            exclude_suspected_equivalent: false,
+            out_manifest: None,
         }
     }
 }

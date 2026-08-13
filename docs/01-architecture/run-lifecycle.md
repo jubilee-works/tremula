@@ -103,6 +103,11 @@ for a run somebody has triaged, and a run whose `manifest.json` or `snapshot/` i
 missing cannot be triaged at all: those two are where a survivor's mutation and
 the bytes it was measured against come from.
 
+The derived-manifest mode never changes the source manifest, report, or snapshot.
+Its optional paired `--exclude-suspected-equivalent --out-manifest PATH` mode
+writes a new manifest at the user-named path, after triage writes `triage.json`
+as usual. That next-run input removes only non-dismissed survivors the model marked `suspected_equivalent`; it doesn't record a suppression.
+
 The project's dismissals are not in here. `tremula-suppressions.json` sits beside
 the manifest, is meant to be committed, and outlives every run — which is the point
 of it.

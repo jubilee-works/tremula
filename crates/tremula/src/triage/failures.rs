@@ -1,18 +1,50 @@
-//! Why a triage could not be produced.
+//! Why a triage command could not complete.
 //!
-//! Every one of these is an operational failure — something about the run
-//! directory, the environment, or the key — and none of them is a classification.
-//! That division is what the exit code reports: a triage that ran and decided
-//! nothing at all still succeeded at the job of saying so, and a triage that never
-//! ran is a different event with a different exit code.
+//! Every one of these is an operational failure that prevents the command from
+//! completing. It may occur before or during judge attempts, or while publishing a
+//! requested derivative manifest after a completed triage. None is a classification:
+//! a completed classification, including one that established nothing, is never itself
+//! a failure. When derivative publication fails, the command fails but the
+//! already-written `triage.json` remains as evidence.
 
 use std::path::PathBuf;
 
 use crate::{pack::PackError, python_env::EnvError, suppressions::SuppressionError};
 
-/// Anything that stops a triage before it can classify anything.
+/// Anything that prevents a triage command from completing.
+///
+/// This includes failures before or during judge attempts and failures publishing an
+/// optional derivative after classification and `triage.json` creation.
 #[derive(Debug, thiserror::Error)]
 pub enum TriageFailure {
+    /// The optional filtering controls must be supplied together.
+    #[error("{option} requires {companion}; pass both options or neither")]
+    PairedOptions {
+        /// The option whose presence was detected.
+        option: &'static str,
+        /// The required companion option.
+        companion: &'static str,
+    },
+    /// There is already a filesystem object where the derivative would go.
+    #[error(
+        "`{}` already exists; a filtered manifest is never written over an existing path — move it aside, or choose another --out-manifest",
+        path.display()
+    )]
+    OutputExists {
+        /// The occupied destination.
+        path: PathBuf,
+    },
+    /// The derivative destination or its parent cannot be used.
+    #[error(
+        "cannot write filtered manifest `{}`: {reason}; choose a new path in an existing writable directory",
+        path.display()
+    )]
+    OutputUnusable {
+        /// The requested destination.
+        path: PathBuf,
+        /// What prevented preflight, staging, or commit.
+        reason: String,
+    },
     /// There is no such run.
     #[error(
         "no run directory at `{}`; pass --run with the run to triage, or check `.tremula/runs`",

@@ -44,11 +44,54 @@ measurement over 38 hand-labelled mutations, one mutation that really does
 change behaviour landed there. And an input that showed no difference is not
 evidence that no input would.
 
+## Run again without suspected equivalents
+
+The normal triage command only writes `triage.json`; it doesn't remove anything.
+If you want a smaller, deliberately risky manifest for one more run, ask for it
+explicitly. The two options must be used together:
+
+```sh
+uv run tremula triage --model gpt-5.2-2025-12-11 \
+  --exclude-suspected-equivalent \
+  --out-manifest tremula-manifest-without-suspected.json
+```
+
+The new manifest is a separate file. The run's `manifest.json`, `report.json`,
+and `snapshot/` stay unchanged. Triage writes its classifications to
+`triage.json` as usual. Existing output files aren't overwritten.
+
+| What the original manifest contains | What the derived manifest does |
+| --- | --- |
+| A non-dismissed `suspected_equivalent` survivor | Removes it |
+| A distinguished or undecided survivor | Keeps it |
+| A killed, timed-out, untriaged, or unknown mutant | Keeps it |
+| An already dismissed survivor | Keeps it |
+
+This removes only a model suspicion. It isn't proof that the mutation is
+equivalent: the measured sample included one real behavioural change classified
+as `suspected_equivalent`. Treat the result as a reversible, run-local way to
+focus another run, not as a better score or a permanent decision. It doesn't
+write a suppression or change what `generate` and ordinary `triage` will raise.
+
+Validate the derived manifest against the current source files, then run it:
+
+```sh
+uv run tremula validate \
+  --manifest tremula-manifest-without-suspected.json --project .
+
+uv run tremula run \
+  --manifest tremula-manifest-without-suspected.json --project .
+```
+
+The validation can fail if the source files changed since the original manifest
+was made. In that case, don't treat the derived manifest as current evidence.
+
 ## Dismissing a survivor
 
-None of this discards anything, on purpose: a filter that wrongly drops a real
-gap in your suite destroys the only evidence this tool produces, while one that
-wrongly keeps a harmless mutation costs you a minute. So the deciding is yours:
+The derived-manifest option above is intentionally separate from dismissal. A
+filter that wrongly drops a real gap in your suite destroys the only evidence
+this tool produces, while one that wrongly keeps a harmless mutation costs you a
+minute. So the permanent decision is yours:
 
 ```sh
 uv run tremula dismiss 1f3a9d2e --reason equivalent \

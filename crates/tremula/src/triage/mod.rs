@@ -21,11 +21,13 @@
 //!
 //! # Exit code
 //!
-//! Zero when the judging happened, whatever it decided — including a triage that
-//! decided nothing about anything, which is information and not a failure. Two when
-//! the judging could not happen: no run to read, documents of two different runs, no
-//! key, or every single survivor failing for a reason that was about the tools. This
-//! is not a gate, and a project that wants one wants a different command.
+//! Zero when the judging and any requested derivative publication completed, whatever
+//! the judging decided — including a triage that decided nothing about anything, which
+//! is information and not a failure. Two when an operational failure prevents the
+//! command from completing, whether before or during judge attempts or while publishing
+//! a requested derivative. In the publication case, the completed `triage.json`
+//! remains as evidence even though the command fails. This is not a classification
+//! gate, and a project that wants one wants a different command.
 
 use std::{
     fs,
@@ -56,12 +58,14 @@ use crate::{
 
 pub mod classify;
 pub mod failures;
+pub mod filtered_manifest;
 pub mod inputs;
 
 use failures::TriageFailure;
+use filtered_manifest::{Destination, PublicationSummary};
 
-/// What a triage exits with when it could not be made. The same code every other
-/// operational failure in this tool reports.
+/// What a triage exits with when the command cannot complete. The same code every
+/// other operational failure in this tool reports.
 pub const EXIT_FAILURE: u8 = 2;
 
 /// Where run directories live under a project.
@@ -109,6 +113,12 @@ pub struct TriageArgs {
     /// `tremula-suppressions.json` in the project.
     #[arg(long, value_name = "PATH")]
     pub suppressions: Option<PathBuf>,
+    /// Remove model-suspected equivalent survivors when writing a derivative manifest.
+    #[arg(long, requires = "out_manifest")]
+    pub exclude_suspected_equivalent: bool,
+    /// Write the optional derivative manifest to this exact path.
+    #[arg(long, value_name = "PATH", requires = "exclude_suspected_equivalent")]
+    pub out_manifest: Option<PathBuf>,
 }
 
 /// Judge a run's survivors and write what came of it.
@@ -130,13 +140,20 @@ pub fn triage_with(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> ExitCode 
 /// the two things happened.
 ///
 /// The number rather than an [`ExitCode`], because this is the decision and an
-/// `ExitCode` is a value nothing can read back. Zero whenever the judging happened,
-/// whatever it decided; [`EXIT_FAILURE`] when it could not happen.
+/// `ExitCode` is a value nothing can read back. Zero when judging and any requested
+/// derivative publication completed. [`EXIT_FAILURE`] reports an operational failure
+/// before or during judge attempts, or a derivative publication failure after
+/// `triage.json` was written; that completed triage evidence is preserved in the
+/// publication case.
 #[must_use]
 pub fn exit_status(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> u8 {
-    match assess(args, judge) {
-        Ok(judged) => {
-            println!("{}", console::render_triage(&judged));
+    match complete(args, judge) {
+        Ok(completed) => {
+            println!("{}", console::render_triage(&completed.judged));
+            if let Some(summary) = &completed.filtered_manifest {
+                println!();
+                println!("{}", console::render_filtered_manifest(summary));
+            }
             0
         }
         Err(failure) => {
@@ -150,11 +167,29 @@ pub fn exit_status(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> u8 {
 ///
 /// # Errors
 ///
-/// Returns [`TriageFailure`] when the run cannot be read, when its documents are
-/// about different runs, when the pack or the key cannot be used, or when every
-/// survivor failed for a reason that was about the tools rather than about a
-/// mutation.
+/// Returns [`TriageFailure`] when paired options or output preflight fail, the run
+/// inputs disagree, the environment or pack cannot be prepared, judge attempts
+/// cannot produce a usable triage, or the requested derivative manifest cannot be
+/// published. Only the final case happens after a completed triage has been written;
+/// its `triage.json` is preserved as evidence.
 pub fn assess(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> Result<Triage, TriageFailure> {
+    complete(args, judge).map(|completed| completed.judged)
+}
+
+/// A completed triage and any optional artifact derived from it.
+struct Completed {
+    judged: Triage,
+    filtered_manifest: Option<PublicationSummary>,
+}
+
+/// Run the complete operation while retaining what the CLI needs to report.
+fn complete(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> Result<Completed, TriageFailure> {
+    validate_args(args)?;
+    let destination = args
+        .out_manifest
+        .as_deref()
+        .map(filtered_manifest::preflight)
+        .transpose()?;
     // Before anything is paid for. A survivor somebody has already dismissed is not
     // asked about again, and a record of decisions that cannot be read is a failure
     // worth having before the first call.
@@ -219,7 +254,39 @@ pub fn assess(args: &TriageArgs, judge: &dyn EquivalenceJudge) -> Result<Triage,
         caveats: CAVEATS.map(str::to_owned).to_vec(),
     };
     write(&read.run_dir.join(TRIAGE_DOCUMENT), &judged)?;
-    Ok(judged)
+    let filtered_manifest = publish_filtered(destination, &read.manifest, &judged)?;
+    Ok(Completed {
+        judged,
+        filtered_manifest,
+    })
+}
+
+fn publish_filtered(
+    destination: Option<Destination>,
+    manifest: &tremula_contracts::manifest::Manifest,
+    judged: &Triage,
+) -> Result<Option<PublicationSummary>, TriageFailure> {
+    let Some(destination) = destination else {
+        return Ok(None);
+    };
+    let projection = filtered_manifest::project(manifest, judged);
+    filtered_manifest::publish(destination, &projection).map(Some)
+}
+
+fn validate_args(args: &TriageArgs) -> Result<(), TriageFailure> {
+    if args.exclude_suspected_equivalent && args.out_manifest.is_none() {
+        return Err(TriageFailure::PairedOptions {
+            option: "--exclude-suspected-equivalent",
+            companion: "--out-manifest",
+        });
+    }
+    if !args.exclude_suspected_equivalent && args.out_manifest.is_some() {
+        return Err(TriageFailure::PairedOptions {
+            option: "--out-manifest",
+            companion: "--exclude-suspected-equivalent",
+        });
+    }
+    Ok(())
 }
 
 /// Everything there is to say about decisions whose text has gone, one line per file.

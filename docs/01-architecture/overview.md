@@ -25,13 +25,19 @@ separate commands rather than flags is in the last column.
 | --- | --- | --- | --- | --- |
 | `generate` | what mutations are worth trying? | one source file, its tests, a model | a manifest | it costs money and sends code to a provider; a manifest is also written by hand |
 | `run` | did the suite catch them? | a manifest, the project | a run directory | — |
-| `triage` | is a survivor a gap or a mutation that changes nothing? | one run directory, a model | `triage.json` beside the report | it costs a model call per survivor, and most runs end at the console |
+| `triage` | is a survivor a gap or a mutation that changes nothing? | one run directory, a model | `triage.json` beside the report, optionally a user-named derived manifest | it costs a model call per survivor, and most runs end at the console |
 | `bundle` | can somebody else reproduce this? | one run directory | a bundle directory | `triage` happens *after* a run, so a bundle made by the run would be missing `triage.json` every time |
 
 `validate`, `restore`, and `dismiss` sit outside that line. The first checks a
 manifest against the bytes on disk; its optional `--deep` mode also invokes the
 installed language pack. The second puts a run's target files back, and the third
 records a person's decision about a survivor.
+
+By default, `triage` only records classifications. Its paired
+`--exclude-suspected-equivalent --out-manifest PATH` options can write a separate
+manifest for another run, excluding only non-dismissed model-suspected equivalent
+survivors. This doesn't change the source run's manifest, report, or snapshot,
+and it doesn't create a dismissal.
 
 The last column's last entry is the whole reason `run --bundle` does not exist.
 A bundle is meant to be immutable and is never written over, so a run that made

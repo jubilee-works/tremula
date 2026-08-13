@@ -11,6 +11,7 @@ use tremula::{
     console::{render, render_bundle},
     decision::DECISION_RULES_VERSION,
     report::build_report,
+    triage::filtered_manifest::PublicationSummary,
 };
 use tremula_contracts::{
     SCHEMA_VERSION,
@@ -214,6 +215,28 @@ fn a_kill_caused_only_by_errors_renders_among_mixed_verdicts() {
 fn excluded_mutants_render_their_own_verdicts() {
     let (report, baseline) = judged(&[Outcome::Survived, Outcome::Erroring, Outcome::Skipped]);
     insta::assert_snapshot!(render(&report, Some(&baseline)));
+}
+
+#[test]
+fn a_filtered_manifest_summary_says_exactly_what_was_kept_and_where() {
+    let summary = PublicationSummary {
+        path: PathBuf::from("review/without-suspected.json"),
+        source_count: 3,
+        kept_count: 2,
+        excluded_count: 1,
+        source_ids: vec![
+            "keep-one".to_owned(),
+            "exclude".to_owned(),
+            "keep-two".to_owned(),
+        ],
+        kept_ids: vec!["keep-one".to_owned(), "keep-two".to_owned()],
+        excluded_ids: vec!["exclude".to_owned()],
+    };
+
+    assert_eq!(
+        tremula::console::render_filtered_manifest(&summary),
+        "filtered manifest: 2/3 kept · 1 suspected equivalent excluded\nmanifest=review/without-suspected.json"
+    );
 }
 
 /// The reference bundle: everything a reader deciding whether to send the directory

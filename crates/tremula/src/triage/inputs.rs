@@ -72,6 +72,8 @@ pub struct Inputs {
     pub run_id: String,
     /// The root a witness is run under: the run's snapshot.
     pub snapshot: PathBuf,
+    /// The complete typed manifest, in the run's original order.
+    pub manifest: Manifest,
     /// The survivors, in the report's order.
     pub survivors: Vec<Survivor>,
     /// Every file a survivor is in, once each, in the order they were first met.
@@ -117,14 +119,16 @@ pub fn read(env: &PythonEnv, run_dir: &Path) -> Result<Inputs, TriageFailure> {
     if !snapshot.is_dir() {
         return Err(TriageFailure::NoSnapshot { run_dir: resolved });
     }
+    let mutants = manifest.mutants.len();
     let (survivors, sources) = surviving(env, &resolved, &snapshot, &report, &manifest)?;
     Ok(Inputs {
         run_dir: resolved,
         run_id,
         snapshot,
+        manifest,
         survivors,
         sources,
-        mutants: manifest.mutants.len(),
+        mutants,
     })
 }
 

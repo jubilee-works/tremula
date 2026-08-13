@@ -500,6 +500,8 @@ fn triaging(fixture: &Fixture) -> TriageArgs {
         python: Some(interpreter()),
         model: "a-model-2026-01-01".to_owned(),
         suppressions: None,
+        exclude_suspected_equivalent: false,
+        out_manifest: None,
     }
 }
 
