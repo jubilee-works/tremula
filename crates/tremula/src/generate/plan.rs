@@ -66,10 +66,12 @@ pub struct Plan {
 
 /// What a selection left aside, in the numbers a reader is owed.
 ///
-/// Kept beside the record rather than derived from it, because the count of test files a
-/// change touched is not something the manifest holds: a change that touched only its own
-/// tests has to be distinguishable from one nothing was found in, and the manifest of the
-/// second says the same as the manifest of the first.
+/// Kept beside the record rather than derived from it, because two of these are not things
+/// the manifest holds. The count of test files a change touched is one: a change that touched
+/// only its own tests has to be distinguishable from one nothing was found in, and the
+/// manifest of the second says the same as the manifest of the first. The count of coverage
+/// entries about another tree is the other, and it exists so that a selection which found
+/// nothing can be told from one that was reading somebody else's measurement.
 #[derive(Debug, Clone, Copy)]
 pub struct Aside {
     /// How many functions were asked about.
@@ -78,6 +80,8 @@ pub struct Aside {
     pub capped: usize,
     /// How many test files the change touched.
     pub tests_excluded: usize,
+    /// How many of the coverage document's files were outside the project.
+    pub coverage_outside: usize,
     /// Whether the selection ran with no coverage to filter by.
     pub degraded: bool,
 }
@@ -100,6 +104,10 @@ pub fn plan(
             selected: selected.selection.functions.len(),
             capped: selected.selection.skipped_over_limit.len(),
             tests_excluded: selected.tests_excluded,
+            coverage_outside: selected
+                .coverage
+                .as_ref()
+                .map_or(0, Coverage::outside_the_project),
             degraded: selected.selection.coverage.is_none(),
         };
         return Ok(Plan {

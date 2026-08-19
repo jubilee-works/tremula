@@ -203,7 +203,7 @@
           "$ref": "#/$defs/Generation"
         },
         "inferred_tests": {
-          "description": "The test file found for this function by convention, or an empty list when\nnone was. At most one: an exact `test_<stem>.py` beside the package the\ntarget file belongs to, and no wider search than that.",
+          "description": "The test file found for this function by convention, or an empty list when\nnone was.\n\nAt most one, and one exact path rather than a search: `tests/test_<stem>.py`\nunder the nearest directory above the target file that declares a package —\na `pyproject.toml`, a `setup.py`, or a `setup.cfg`. Never beside the module,\nand never past that directory, so a package with no tests of its own answers\nnothing rather than borrowing the next package's tests of a module of the\nsame name. A project that declares no package anywhere is one package whose\nroot is the project root.",
           "type": "array",
           "items": {
             "type": "string"

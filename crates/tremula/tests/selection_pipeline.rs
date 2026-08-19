@@ -60,7 +60,11 @@ const AFTER: &str = concat!(
     "    return (min(a[0], b[0]), max(a[1], b[1]))\n",
 );
 
-/// The test file the project's convention puts beside `ranges.py`, as the base has it.
+/// Where the project's convention puts the tests of `ranges.py`: the `tests` directory of the
+/// package it belongs to, which here — nothing declaring a package of its own — is the project.
+const TESTS_FILE: &str = "tests/test_ranges.py";
+
+/// That file, as the base commit has it.
 const TESTS_BEFORE: &str = "def test_overlaps():\n    assert overlaps(0, 30, 30, 60) is False\n";
 
 /// The same, as the branch has it: a change touches its own tests, and a selection has to
@@ -99,13 +103,14 @@ impl Fixture {
         let project = fixture.project();
         fs::create_dir_all(&project).unwrap();
         fs::write(project.join("ranges.py"), BEFORE).unwrap();
-        fs::write(project.join("test_ranges.py"), TESTS_BEFORE).unwrap();
+        fs::create_dir_all(project.join("tests")).unwrap();
+        fs::write(project.join(TESTS_FILE), TESTS_BEFORE).unwrap();
         fixture.git(&["init", "--quiet", "--initial-branch", "main"]);
         fixture.git(&["add", "."]);
         fixture.commit("the base");
         fixture.git(&["branch", "base"]);
         fs::write(project.join("ranges.py"), AFTER).unwrap();
-        fs::write(project.join("test_ranges.py"), TESTS_AFTER).unwrap();
+        fs::write(project.join(TESTS_FILE), TESTS_AFTER).unwrap();
         fixture.git(&["add", "."]);
         fixture.commit("the change");
         fixture.write_pack();
@@ -335,7 +340,11 @@ fn the_change_a_pull_request_made_becomes_the_functions_it_asks_about() {
             end_line: 7
         }
     );
-    assert_eq!(overlaps.inferred_tests, vec!["test_ranges.py".to_owned()]);
+    assert_eq!(
+        overlaps.inferred_tests,
+        vec![TESTS_FILE.to_owned()],
+        "the one path the convention names, found without being told"
+    );
     assert_eq!(overlaps.generation.proposed, 1);
     assert_eq!(overlaps.generation.recorded, 1);
     assert!(selection.skipped_over_limit.is_empty());
@@ -429,6 +438,55 @@ fn a_changed_file_the_coverage_document_never_mentions_is_named() {
     );
     assert!(selection.functions.is_empty());
     assert!(selection.coverage_gaps.is_empty());
+}
+
+/// A block that names a changed file and records not one line of it accounts for nothing.
+/// The changed lines of that file are not candidates, are not gaps, and would otherwise
+/// disappear from every number the run reports — so the file is named as one the coverage
+/// document has nothing to say about, which is what it is.
+#[test]
+fn a_changed_file_whose_coverage_block_measured_no_line_is_named_too() {
+    let fixture = Fixture::new();
+    let mut args = fixture.selecting();
+    args.coverage = Some(fixture.coverage("SF:ranges.py\nend_of_record\n"));
+
+    let generated = command::compose(&args, &Answers::about(CONDITION, "False")).unwrap();
+
+    let selection = generated.selection.expect("a selection was still recorded");
+    assert_eq!(
+        selection.files_not_in_coverage,
+        vec!["ranges.py".to_owned()],
+        "a file measured for no line is not a file that was measured"
+    );
+    assert!(selection.functions.is_empty());
+    assert!(selection.coverage_gaps.is_empty());
+}
+
+/// A coverage document about another tree is the mistake this counts: a monorepo sibling's
+/// document, or one written before a `cd`. The count exists so that a selection which found
+/// nothing can be told from one that was reading somebody else's measurement, and it is only
+/// worth having if a reader sees it.
+#[test]
+fn coverage_about_files_outside_the_project_is_said_on_the_console() {
+    let fixture = Fixture::new();
+    let mut args = fixture.selecting();
+    args.coverage = Some(fixture.coverage(concat!(
+        "SF:/somewhere/else/ranges.py\n",
+        "DA:4,1\n",
+        "end_of_record\n",
+        "SF:/somewhere/else/other.py\n",
+        "DA:1,1\n",
+        "end_of_record\n",
+    )));
+
+    let generated = command::compose(&args, &Answers::about(CONDITION, "False")).unwrap();
+
+    let said = tremula::console::render_generation(&generated);
+    assert!(
+        said.contains("2 coverage entr"),
+        "the reader is told how many were ignored: {said}"
+    );
+    assert!(said.contains("outside the project"), "{said}");
 }
 
 /// Without coverage every changed line is a candidate, and the lines that belong to no
@@ -643,53 +701,108 @@ fn candidate(file: &str, function: &str, lines: u32, at: u64) -> Candidate {
     }
 }
 
-/// The convention, and its limits. An exact `test_<stem>.py` in a tests directory of a
-/// package the file belongs to, or beside the file itself. Nothing else: a project-wide
-/// hunt for a similarly named file would send a model somebody else's tests, and every
-/// test file found is sent to a provider.
+/// The convention, and the boundary it stops at. One path is looked at and no others:
+/// `tests/test_<stem>.py` under the nearest directory above the target file that declares a
+/// package. Not beside the module, and never past that directory — what is found here is read
+/// and sent to a model provider, so looking one directory too far means another project's
+/// tests in somebody's prompt.
 #[test]
-fn the_test_file_a_convention_names_is_found_and_nothing_else_is() {
+fn the_one_path_the_convention_names_is_the_only_one_looked_at() {
     let project = TempDir::new().unwrap();
     let root = project.path();
-    for directory in ["src/pkg", "src/pkg/tests", "tests", "elsewhere"] {
+    for directory in [
+        "src/pkg",
+        "src/pkg/tests",
+        "tests",
+        "pkgb",
+        "pkgc/tests",
+        "legacy/tests",
+    ] {
         fs::create_dir_all(root.join(directory)).unwrap();
     }
     for file in [
+        "pyproject.toml",
+        "src/pkg/module.py",
+        "tests/test_module.py",
         "src/pkg/beside.py",
         "src/pkg/test_beside.py",
         "src/pkg/inner.py",
         "src/pkg/tests/test_inner.py",
-        "src/pkg/rooted.py",
-        "tests/test_rooted.py",
-        "src/pkg/lonely.py",
-        "src/pkg/nearly.py",
-        "elsewhere/test_nearly.py",
-        "tests/test_nearlyish.py",
+        "pkgb/pyproject.toml",
+        "pkgb/util.py",
+        "tests/test_util.py",
+        "pkgc/pyproject.toml",
+        "pkgc/thing.py",
+        "pkgc/tests/test_thing.py",
+        "legacy/setup.py",
+        "legacy/old.py",
+        "legacy/tests/test_old.py",
     ] {
         fs::write(root.join(file), "x = 1\n").unwrap();
     }
 
     assert_eq!(
-        inferred_tests(root, "src/pkg/inner.py"),
-        vec!["src/pkg/tests/test_inner.py".to_owned()],
-        "the tests directory of the file's own package comes first"
-    );
-    assert_eq!(
-        inferred_tests(root, "src/pkg/beside.py"),
-        vec!["src/pkg/test_beside.py".to_owned()]
-    );
-    assert_eq!(
-        inferred_tests(root, "src/pkg/rooted.py"),
-        vec!["tests/test_rooted.py".to_owned()],
-        "the tests directory of a package the file is inside"
+        inferred_tests(root, "src/pkg/module.py"),
+        vec!["tests/test_module.py".to_owned()],
+        "a module under src/ belongs to the package the root pyproject declares, whose tests \
+         are beside that pyproject — the layout most projects have"
     );
     assert!(
-        inferred_tests(root, "src/pkg/lonely.py").is_empty(),
+        inferred_tests(root, "src/pkg/beside.py").is_empty(),
+        "a test file beside the module is not the path the convention names"
+    );
+    assert!(
+        inferred_tests(root, "src/pkg/inner.py").is_empty(),
+        "nor is a tests directory that belongs to no declared package"
+    );
+    assert!(
+        inferred_tests(root, "pkgb/util.py").is_empty(),
+        "a package of its own does not reach past itself for a same-named test file: \
+         `tests/test_util.py` is another package's tests of another module"
+    );
+    assert_eq!(
+        inferred_tests(root, "pkgc/thing.py"),
+        vec!["pkgc/tests/test_thing.py".to_owned()],
+        "a package that has its own tests resolves inside itself"
+    );
+    assert_eq!(
+        inferred_tests(root, "legacy/old.py"),
+        vec!["legacy/tests/test_old.py".to_owned()],
+        "a setup.py declares a package as much as a pyproject.toml does"
+    );
+}
+
+/// A project that declares no package anywhere — a directory of scripts, a repository whose
+/// packaging lives somewhere else — is one package, and its root is the boundary.
+#[test]
+fn a_project_that_declares_no_package_is_one_package_from_its_root() {
+    let project = TempDir::new().unwrap();
+    let root = project.path();
+    for directory in ["tests", "pkg"] {
+        fs::create_dir_all(root.join(directory)).unwrap();
+    }
+    for file in [
+        "thing.py",
+        "tests/test_thing.py",
+        "pkg/other.py",
+        "tests/test_other.py",
+        "pkg/lonely.py",
+    ] {
+        fs::write(root.join(file), "x = 1\n").unwrap();
+    }
+
+    assert_eq!(
+        inferred_tests(root, "thing.py"),
+        vec!["tests/test_thing.py".to_owned()]
+    );
+    assert_eq!(
+        inferred_tests(root, "pkg/other.py"),
+        vec!["tests/test_other.py".to_owned()],
+        "with nothing declaring a package, the project root is the package root"
+    );
+    assert!(
+        inferred_tests(root, "pkg/lonely.py").is_empty(),
         "no test file is an empty list and never a guess"
-    );
-    assert!(
-        inferred_tests(root, "src/pkg/nearly.py").is_empty(),
-        "a file of that name somewhere else is not this file's test"
     );
 }
 

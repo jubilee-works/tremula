@@ -202,15 +202,34 @@ fn a_file_the_document_never_mentions_is_one_it_knows_nothing_about() {
     assert!(!coverage.measured("src/sync.py", 4));
 }
 
-/// A file whose block is empty was still measured: the document says the file was
-/// instrumented and no line of it is a statement, which is not the same thing as
-/// saying nothing about the file.
+/// A file whose block records not one line is a file the document accounts for nothing of.
+/// Nothing in it could be a candidate and nothing in it could be a gap, so calling it known
+/// would let a change to it fall out of every number a selection reports.
 #[test]
-fn a_file_the_document_names_and_says_nothing_else_about_is_still_known() {
+fn a_file_the_document_names_and_says_nothing_else_about_is_not_accounted_for() {
     let project = TempDir::new().unwrap();
 
     let coverage = Coverage::read("SF:src/__init__.py\nend_of_record\n", project.path()).unwrap();
 
-    assert!(coverage.knows("src/__init__.py"));
+    assert!(!coverage.knows("src/__init__.py"));
     assert!(!coverage.measured("src/__init__.py", 1));
+}
+
+/// And a file split across two blocks, one of which measured nothing, is still measured: the
+/// union of the blocks is the account, and one empty block does not erase the other.
+#[test]
+fn one_empty_block_does_not_unmake_a_file_another_block_measured() {
+    let project = TempDir::new().unwrap();
+    let document = concat!(
+        "SF:src/overlap.py\n",
+        "end_of_record\n",
+        "SF:src/overlap.py\n",
+        "DA:4,2\n",
+        "end_of_record\n",
+    );
+
+    let coverage = Coverage::read(document, project.path()).unwrap();
+
+    assert!(coverage.knows("src/overlap.py"));
+    assert!(coverage.covered("src/overlap.py", 4));
 }

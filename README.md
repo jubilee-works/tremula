@@ -130,8 +130,8 @@ rather than adding to the thread. See
 > is asked to post one with `--github-pr`.
 >
 > **A selection sends the test files it found, too.** `generate --diff-base`
-> looks for each target's tests by convention — `test_<stem>.py` beside the file
-> or in a `tests` directory of a package it sits inside — and any file it finds is
+> looks at one path per target — `tests/test_<stem>.py` under the nearest directory
+> above the file that declares a package — and the file it finds there, if any, is
 > read and sent to the provider along with the function. What it found is written
 > into the manifest under `selection.functions[].inferred_tests`, so what was sent
 > is always on the record.

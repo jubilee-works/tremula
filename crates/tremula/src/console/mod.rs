@@ -208,18 +208,31 @@ fn named(generated: &Generated, outcome: &crate::generate::command::FunctionOutc
     format!("{}:{}", outcome.file, outcome.function)
 }
 
-/// The two things a selection has to say out loud, because its exit code will not.
+/// The things a selection has to say out loud, because its exit code will not.
 ///
-/// A selection made without coverage cannot tell a mutant the suite missed from one the
-/// suite never ran, and every survivor it produces carries that ambiguity. A selection
-/// that proposed things and recorded none of them produced no evidence at all, and a
-/// reader who saw only the green exit code would take it for a run that found nothing
-/// wrong.
+/// A coverage document whose files are somebody else's tree measures nothing this could
+/// select on, and a selection reading one looks exactly like a selection of a change that
+/// touched nothing — so the entries left out are counted and said. A selection made without
+/// coverage cannot tell a mutant the suite missed from one the suite never ran, and every
+/// survivor it produces carries that ambiguity. A selection that proposed things and
+/// recorded none of them produced no evidence at all, and a reader who saw only the green
+/// exit code would take it for a run that found nothing wrong.
 fn what_a_selection_has_to_admit(generated: &Generated) -> Vec<String> {
     let Some(aside) = &generated.aside else {
         return Vec::new();
     };
     let mut said = Vec::new();
+    if aside.coverage_outside > 0 {
+        said.push(format!(
+            "note: {} coverage entr{} outside the project and were ignored — check that the document was written where the project is",
+            aside.coverage_outside,
+            if aside.coverage_outside == 1 {
+                "y was"
+            } else {
+                "ies were"
+            }
+        ));
+    }
     if aside.degraded {
         said.push(
             "warning: selected without coverage, so a mutant that survives may have survived because no test runs it — pass `--coverage` with an LCOV document of the project's own test run"

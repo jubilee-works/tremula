@@ -114,8 +114,11 @@ recorded had every proposal refused, and a run that reported no survivors for it
 reported nothing at all. A function `skipped_over_limit` was never asked about, so
 its counts are zero and its `inferred_tests` are empty.
 
-`inferred_tests` names the test file the project's own convention put beside the
-target, when there was one, and is empty when there was not. **The files it names
+`inferred_tests` names the one test file the project's own convention names for the
+target — `tests/test_<stem>.py` under the nearest directory above it that declares a
+package — when there was one, and is empty when there was not. It never reaches past
+that directory, so a package with no tests of its own is an empty list rather than
+the next package's tests of a module of the same name. **The files it names
 are read and sent to the model provider**, exactly as the ones named on the
 command line are.
 

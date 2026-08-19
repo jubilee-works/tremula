@@ -129,13 +129,22 @@ replaces no such line is refused as `mutant_on_uncovered_line`.
 ### The tests a selection finds for itself
 
 Showing a model the tests of the function it is asked about was measured to
-improve what it proposes, and a selection has nobody to name them. So it looks
-for `test_<stem>.py` at exact paths the convention puts it at — the file's own
-package's `tests` directory, beside the file, then the `tests` directory of each
-package the file sits inside, out to the project root — and takes the first that
-is really a file. It never searches. Whatever it finds is recorded in
-`selection.functions[].inferred_tests`, and an empty list is the honest record of
-having found nothing.
+improve what it proposes, and a selection has nobody to name them. So it looks at
+one path: `tests/test_<stem>.py` under the nearest directory above the target file
+that declares a package — a `pyproject.toml`, a `setup.py`, or a `setup.cfg`. It
+never searches, and it never looks anywhere else.
+
+The boundary is the package because both looser rules were measured and both are
+wrong. Looking only in the module's own directory finds nothing at all in the
+layout most projects have, where a module sits under `src/` and the tests sit
+beside the packaging. Walking up to the project root finds the *next package
+over*'s tests of a module of the same name — `pkgb/util.py` answered with
+`tests/test_util.py`, which is `pkga`'s. So a package that has no tests of its own
+answers nothing rather than borrowing its neighbour's, and a project that declares
+no package anywhere is one package whose root is the project root.
+
+Whatever is found is recorded in `selection.functions[].inferred_tests`, and an
+empty list is the honest record of having found nothing.
 
 **A test file found this way is read and sent to the model provider**, exactly
 as one named with `--tests` is.

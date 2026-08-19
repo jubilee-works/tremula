@@ -15,6 +15,11 @@
 //! stand between a decorator and the `def` it belongs to. Anything else ends the block,
 //! and a class is not a function — so a `@dataclass` and the fields under it belong to
 //! no function at all, and are counted rather than selected.
+//!
+//! That question is asked before the spans are, because a decorator above a *nested*
+//! function is inside the enclosing function's span: reading the spans first would answer
+//! with the enclosing function, and a change to the line above `inner`'s `def` is not a
+//! change to `outer`.
 
 use tremula_contracts::{
     manifest::{LineRange, Span},
@@ -106,17 +111,22 @@ impl<'a> Lines<'a> {
 
 /// The function a changed line belongs to, or nothing when it belongs to none.
 ///
-/// Innermost first, because a nested function's body is inside its parent's and it is
-/// the nested one a mutation there changes. Then the decorators: a line the spans place
-/// in no function, sitting in the block of decorators directly above one, belongs to
-/// the function it decorates.
+/// The decorators are asked about first, and the order is not a preference. A decorator
+/// above a nested function sits inside the enclosing function's own span, so reading the
+/// spans first would answer with the enclosing one — and a mutation of `outer` is not what
+/// a change to the line above `inner`'s `def` is about. Asking the lookback first costs the
+/// spans nothing, because it answers at all only from a decorator line whose block ends at
+/// a line some function begins on.
+///
+/// Then the spans, innermost first, because a nested function's body is inside its parent's
+/// and it is the nested one a mutation there changes.
 #[must_use]
 pub fn owner<'report>(
     functions: &'report [FunctionSpan],
     lines: &Lines<'_>,
     line: u32,
 ) -> Option<&'report FunctionSpan> {
-    innermost(functions, lines, line).or_else(|| decorated(functions, lines, line))
+    decorated(functions, lines, line).or_else(|| innermost(functions, lines, line))
 }
 
 /// The innermost function whose lines hold this one.

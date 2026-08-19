@@ -143,6 +143,28 @@ fn a_line_inside_a_nested_function_belongs_to_the_inner_one() {
     assert_eq!(owner_of(source, 4).as_deref(), Some("outer"));
 }
 
+/// A decorator above a nested function belongs to the nested one, and this is the case the
+/// lookback has to be asked about before the spans are: the decorator line sits inside the
+/// outer function's own span, so reading the spans first would attribute it to the outer
+/// function and mutate the wrong body.
+#[test]
+fn a_decorator_above_a_nested_function_belongs_to_the_nested_one() {
+    let source = concat!(
+        "def outer():\n",
+        "    @lru_cache\n",
+        "    def inner(x):\n",
+        "        return x + 1\n",
+        "    return inner\n",
+    );
+
+    assert_eq!(owner_of(source, 2).as_deref(), Some("inner"));
+    assert_eq!(
+        owner_of(source, 5).as_deref(),
+        Some("outer"),
+        "and the outer function still owns its own lines"
+    );
+}
+
 #[test]
 fn a_decorator_line_belongs_to_the_function_it_decorates() {
     let source = "@app.route(\"/x\")\ndef view():\n    return 1\n";

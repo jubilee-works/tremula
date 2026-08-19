@@ -30,6 +30,11 @@
 //!
 //! A duplicated `SF:` block is a partial account of the same file rather than a
 //! contradiction: a line reached under either block is a line a test reached.
+//!
+//! A block that names a file and records not one line of it accounts for nothing, and is
+//! read as a file the document has never heard of. Nothing in such a file could be a
+//! candidate or a gap, so the alternative is a changed file whose lines fall out of every
+//! number a selection reports.
 
 use std::{collections::BTreeMap, path::Path};
 
@@ -97,9 +102,7 @@ impl Coverage {
             let record = raw.trim_end_matches('\r');
             if let Some(path) = record.strip_prefix(FILE) {
                 let inside = relative(path.trim(), &roots);
-                if let Some(file) = &inside {
-                    read.files.entry(file.clone()).or_default();
-                } else {
+                if inside.is_none() {
                     read.outside += 1;
                 }
                 block = Some(inside);
@@ -137,7 +140,13 @@ impl Coverage {
         Ok(read)
     }
 
-    /// Whether the document says anything at all about this file.
+    /// Whether the document measured any line of this file.
+    ///
+    /// A block that names a file and records not one line of it is not an account of that
+    /// file: nothing in it can be a candidate, and nothing in it can be a gap, so a change
+    /// to the file would have every one of its lines fall out of every number a selection
+    /// reports. Saying the document knows nothing about it is what puts those lines back on
+    /// the record — as a file the coverage document does not account for, which it is.
     #[must_use]
     pub fn knows(&self, file: &str) -> bool {
         self.files.contains_key(file)

@@ -68,7 +68,7 @@ fn a_pull_request_selects_its_own_changed_function_and_the_reason_travels() {
     );
     assert_eq!(
         overlaps.inferred_tests,
-        vec!["test_ranges.py".to_owned()],
+        vec!["tests/test_ranges.py".to_owned()],
         "the tests the project's own convention names, found without being told"
     );
     assert_eq!(overlaps.generation.proposed, 4);

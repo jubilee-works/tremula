@@ -128,9 +128,9 @@ manifest에 대해 리포트만 쓰고 끝내므로, CI 잡은 분기 없이 명
 > 요청받은 `tremula comment`입니다.
 >
 > **선정 모드는 스스로 찾은 테스트 파일도 전송합니다.** `generate --diff-base`는
-> 대상마다 관례에 따라 테스트를 찾습니다 — 파일 옆의 `test_<stem>.py`, 또는 그
-> 파일이 속한 패키지의 `tests` 디렉토리 — 찾은 파일은 함수와 함께 읽혀 제공자에게
-> 전송됩니다. 무엇을 찾았는지는 manifest의 `selection.functions[].inferred_tests`에
+> 대상마다 단 하나의 경로만 봅니다 — 대상 파일 위쪽에서 패키지를 선언하는 가장
+> 가까운 디렉토리의 `tests/test_<stem>.py` — 거기서 찾은 파일은 함수와 함께 읽혀
+> 제공자에게 전송됩니다. 무엇을 찾았는지는 manifest의 `selection.functions[].inferred_tests`에
 > 기록되므로, 무엇이 전송되었는지는 항상 기록으로 남습니다.
 >
 > **manifest는 곧 실행할 코드입니다.** 모든 `replacement`는 테스트 스위트의

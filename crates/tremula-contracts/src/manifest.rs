@@ -147,8 +147,15 @@ pub struct SelectedFunction {
     /// How many of this function's lines the change touched. What the limit sorts on.
     pub candidate_lines: u32,
     /// The test file found for this function by convention, or an empty list when
-    /// none was. At most one: an exact `test_<stem>.py` beside the package the
-    /// target file belongs to, and no wider search than that.
+    /// none was.
+    ///
+    /// At most one, and one exact path rather than a search: `tests/test_<stem>.py`
+    /// under the nearest directory above the target file that declares a package —
+    /// a `pyproject.toml`, a `setup.py`, or a `setup.cfg`. Never beside the module,
+    /// and never past that directory, so a package with no tests of its own answers
+    /// nothing rather than borrowing the next package's tests of a module of the
+    /// same name. A project that declares no package anywhere is one package whose
+    /// root is the project root.
     pub inferred_tests: Vec<String>,
     /// What asking about this function came to.
     pub generation: Generation,
