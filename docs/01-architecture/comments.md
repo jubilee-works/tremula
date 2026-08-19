@@ -49,12 +49,19 @@ So the posted body carries a marker on its first line:
 It is an HTML comment, so nobody reading the thread sees it, and it names the
 repository and the pull request, so two projects commenting on two pull requests
 cannot mistake each other's comment for their own. The command reads the pull
-request's comments — every page of them — and looks for one whose **first line is
-exactly** that marker. Not "contains": a review or a bug report that quoted a
-previous comment would contain it, and editing somebody's account of a problem is
-not something a reporting tool may do. Among the ones that match, the newest is
-edited, and a comment a program wrote is preferred over one that matches and
-appears to be a person's. If none matches, a new comment is posted.
+request's comments — every page of them — and looks for one that the platform says
+**a program wrote** and whose **first line is exactly** that marker. Among the
+ones that match, the newest is edited. If none matches, a new comment is posted.
+
+Both halves of that are there to keep a write off somebody else's comment. A token
+that may comment on a pull request may also edit anybody else's comment on it, so
+the marker alone is not authorisation: a review or a bug report that quoted a
+previous comment contains it, a person who pasted a previous report has it as
+their own first line, and editing somebody's account of a problem is not something
+a reporting tool may do. The comparison is exact at both ends for the same reason
+— a first line of the marker followed by a space is a line somebody typed. The one
+thing taken off the end is a carriage return, which is how the text was
+transmitted rather than what it says.
 
 ## The body
 

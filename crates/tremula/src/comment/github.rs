@@ -11,6 +11,16 @@
 //! pull requests cannot mistake each other's comment for their own — and it is an HTML
 //! comment, so nobody reading the thread ever sees it.
 //!
+//! # Why only a program's own comment is ever edited
+//!
+//! A token that may comment on a pull request may also edit anybody else's comment on it.
+//! So the marker is not enough on its own: a person who quoted the marker, or who wrote it
+//! out to ask what it was, would be holding a comment this could address a write to — and
+//! that write would replace what they said with a mutation report. A comment is therefore
+//! only ever replaced when the platform says a program wrote it *and* its first line is the
+//! marker exactly. Anything else means there is nothing of ours on the pull request yet, and
+//! a new comment is posted.
+//!
 //! # What is behind the boundary
 //!
 //! The choosing is a pure function over what the listing said, tested without a socket. What
@@ -75,27 +85,30 @@ pub struct Listed {
     pub by_a_program: bool,
 }
 
-/// Which comment a new one replaces, if any of them is this tool's.
+/// Which comment a new one replaces, if any of them is this tool's own.
+///
+/// Two conditions, and both of them are load-bearing.
 ///
 /// The first line has to be the marker exactly. Not "contains": a comment that quoted a
 /// previous one — a review, a bug report — would contain it, and editing somebody's account
-/// of a problem is not something a reporting tool may do.
+/// of a problem is not something a reporting tool may do. Not "starts with", and not after a
+/// trim either: a first line of the marker followed by a space is a line somebody typed, and
+/// widening the comparison to accept it would widen it to accept them.
 ///
-/// Among the ones that match, the newest is replaced, because the list is oldest first and
-/// the newest is the one a reader is looking at. A comment a program wrote is preferred over
-/// one that matches but appears to be a person's, so that a project running this under a
-/// human's token still lands on its own comment rather than on a quotation of it.
+/// And the platform has to say a program wrote it. A token that may comment on a pull
+/// request may also edit anybody else's comment on it, so a match on the marker alone is an
+/// address a write could be sent to — and a person who wrote the marker out, for whatever
+/// reason, would have their comment overwritten by a report. When nothing a program wrote
+/// matches, there is nothing of ours here yet and a new comment is the answer.
+///
+/// Among the ones that do match, the newest is replaced, because the list is oldest first
+/// and the newest is the one a reader is looking at.
 #[must_use]
 pub fn which_to_replace<'a>(listed: &'a [Listed], marker: &str) -> Option<&'a Listed> {
-    let ours: Vec<&Listed> = listed
+    listed
         .iter()
-        .filter(|comment| comment.first_line == marker)
-        .collect();
-    ours.iter()
         .rev()
-        .find(|comment| comment.by_a_program)
-        .or_else(|| ours.last())
-        .copied()
+        .find(|comment| comment.by_a_program && comment.first_line == marker)
 }
 
 /// Where a comment ended up.
@@ -314,18 +327,26 @@ impl Poster for GitHub {
 
 /// One comment of the listing, as much of it as the choosing needs.
 fn described(comment: &Value) -> Listed {
-    let body = comment["body"].as_str().unwrap_or_default();
     let login = comment["user"]["login"].as_str().unwrap_or_default();
     Listed {
         id: comment["id"].as_u64().unwrap_or_default(),
-        first_line: body
-            .lines()
-            .next()
-            .unwrap_or_default()
-            .trim_end()
-            .to_owned(),
+        first_line: first_line(comment["body"].as_str().unwrap_or_default()),
         by_a_program: comment["user"]["type"].as_str() == Some("Bot") || login.ends_with("[bot]"),
     }
+}
+
+/// A body's first line, as the marker comparison sees it.
+///
+/// One carriage return comes off the end and nothing else does. A body stored with Windows
+/// line endings would otherwise never match a marker this wrote, which is a difference in
+/// how the text was transmitted rather than in what it says. Trailing space is a different
+/// matter: it is something a person typed, and taking it off would make "the marker and a
+/// space" match the marker — widening what a write may be addressed to, which is the one
+/// thing the comparison is here to keep narrow.
+#[must_use]
+pub fn first_line(body: &str) -> String {
+    let line = body.lines().next().unwrap_or_default();
+    line.strip_suffix('\r').unwrap_or(line).to_owned()
 }
 
 /// Which repository a comment is about: the one the caller named, or the one the platform's

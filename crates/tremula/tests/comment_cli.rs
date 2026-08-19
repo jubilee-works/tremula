@@ -15,7 +15,9 @@ use tempfile::TempDir;
 
 use tremula::comment::{
     CommentArgs,
-    github::{Listed, PostError, Posted, Poster, marker, which_to_replace, with_marker},
+    github::{
+        Listed, PostError, Posted, Poster, first_line, marker, which_to_replace, with_marker,
+    },
     write,
 };
 
@@ -57,11 +59,32 @@ const MANIFEST: &str = r#"{
 }
 "#;
 
+/// A manifest of the same mutant identifier and a different mutation of it entirely — what a
+/// second generation leaves in the working tree while an earlier run's report is still there.
+/// Pairing this with that report would put these spans and this replacement under those
+/// verdicts, and nothing in either document would contradict the other.
+const DIVERGENT: &str = r#"{
+  "schema_version": "0.1",
+  "language": "python",
+  "base": { "revision": "0011223344556677889900112233445566778899" },
+  "mutants": [
+    {
+      "id": "0e2f4a6b8c0d2e4f6a80b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4",
+      "file": "routes.py",
+      "base_file_sha256": "5f4dcc3b5aa765d61d8327deb882cf99f4dcc3b5aa765d61d8327deb882cf995",
+      "span": { "start_byte": 10, "end_byte": 40 },
+      "original": "WORKING_DAY[0]",
+      "replacement": "WORKING_DAY[1]"
+    }
+  ]
+}
+"#;
+
 /// The report of a run of that manifest, with the one mutant surviving.
 const REPORT: &str = r#"{
   "schema_version": "0.1",
   "run": {
-    "run_id": "20260819T091244Z-a1b2c3",
+    "run_id": "THE_RUN",
     "tremula_version": "0.1.0",
     "decision_rules_version": "1",
     "project": ".",
@@ -88,6 +111,42 @@ const REPORT: &str = r#"{
 }
 "#;
 
+/// A report of a run that had nothing to test: the run an empty selection produces, which is
+/// the only run that keeps no manifest of its own.
+const NOTHING_TESTED: &str = r#"{
+  "schema_version": "0.1",
+  "run": {
+    "run_id": "THE_RUN",
+    "tremula_version": "0.1.0",
+    "decision_rules_version": "1",
+    "project": ".",
+    "dirty": false,
+    "started_at": "2026-08-19T09:12:44Z",
+    "finished_at": "2026-08-19T09:12:45Z"
+  },
+  "verdicts": [],
+  "score": {
+    "total": 0, "killed": 0, "timeout": 0, "survived": 0,
+    "runtime_error": 0, "not_applied": 0, "not_run": 0, "skipped": 0
+  },
+  "exit_code": 0,
+  "caveats": []
+}
+"#;
+
+/// What a real run of `MANIFEST` is named: when it started, and the first characters of the
+/// hash of the manifest it was given.
+///
+/// Derived rather than written out, because that name is the only link there is between a run
+/// and a manifest kept outside its directory. A fixture that made one up would be pairing two
+/// documents no run could have produced together, and would prove nothing about the pairing.
+fn the_run() -> String {
+    format!(
+        "20260819T091244Z-{}",
+        tremula::run_dir::fingerprint_of(MANIFEST.as_bytes())
+    )
+}
+
 /// A project with a manifest in it and one run under it.
 struct Workspace {
     root: TempDir,
@@ -100,8 +159,17 @@ impl Workspace {
         };
         fs::create_dir_all(workspace.run()).unwrap();
         fs::write(workspace.project().join("tremula-manifest.json"), MANIFEST).unwrap();
-        fs::write(workspace.run().join("report.json"), REPORT).unwrap();
+        workspace.report(REPORT);
         workspace
+    }
+
+    /// Put a report in the run, naming the run it is of.
+    fn report(&self, document: &str) {
+        fs::write(
+            self.run().join("report.json"),
+            document.replace("THE_RUN", &the_run()),
+        )
+        .unwrap();
     }
 
     fn project(&self) -> PathBuf {
@@ -109,10 +177,7 @@ impl Workspace {
     }
 
     fn run(&self) -> PathBuf {
-        self.project()
-            .join(".tremula")
-            .join("runs")
-            .join("20260819T091244Z-a1b2c3")
+        self.project().join(".tremula").join("runs").join(the_run())
     }
 
     /// What the run's `latest` link points at, the way a run leaves it.
@@ -291,6 +356,73 @@ fn a_manifest_that_is_not_there_is_refused() {
     );
 }
 
+/// The pairing. A run keeps the manifest it was given, and that copy is what its verdicts are
+/// about — however far the working tree has moved on since. Reading the working tree's instead
+/// would quote spans and replacements the suite was never run against, under this run's numbers.
+#[test]
+fn the_manifest_a_run_kept_is_the_one_the_comment_quotes() {
+    let workspace = Workspace::new();
+    fs::write(workspace.run().join("manifest.json"), MANIFEST).unwrap();
+    fs::write(workspace.project().join("tremula-manifest.json"), DIVERGENT).unwrap();
+
+    let output = workspace.comment(&["--run", &workspace.run().display().to_string()]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let said = stdout(&output);
+    assert!(
+        said.contains("`start < other_end` → `start <= other_end`"),
+        "{said}"
+    );
+    assert!(
+        !said.contains("WORKING_DAY"),
+        "a later generation's mutation is not this run's: {said}"
+    );
+    assert!(said.contains("`ranges.py:7`"), "{said}");
+}
+
+/// The one run that keeps no manifest of its own is the one that had nothing to test — and it
+/// is the run whose comment matters most. Its body comes from the manifest beside the project,
+/// which the run's own name vouches for.
+#[test]
+fn a_run_that_tested_nothing_is_reported_from_the_manifest_the_project_holds() {
+    let workspace = Workspace::new();
+    workspace.report(NOTHING_TESTED);
+
+    let output = workspace.comment(&["--run", &workspace.run().display().to_string()]);
+
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let said = stdout(&output);
+    assert!(said.contains("**Nothing was mutated.**"), "{said}");
+    assert!(
+        said.contains("1 of 1 function(s) this change touched were mutated"),
+        "the reasons the manifest records are still reported: {said}"
+    );
+}
+
+/// And when the project's manifest is not the one that run ran, the comment is refused rather
+/// than assembled out of two runs. The name is the only link there is, so it is the check.
+#[test]
+fn a_run_that_kept_no_manifest_refuses_one_it_never_ran() {
+    let workspace = Workspace::new();
+    workspace.report(NOTHING_TESTED);
+    fs::write(workspace.project().join("tremula-manifest.json"), DIVERGENT).unwrap();
+
+    let output = workspace.comment(&["--run", &workspace.run().display().to_string()]);
+
+    assert_eq!(output.status.code(), Some(2));
+    let complaint = stderr(&output);
+    assert!(complaint.contains("tremula-manifest.json"), "{complaint}");
+    assert!(complaint.contains(&the_run()), "{complaint}");
+    assert!(
+        complaint.contains(&tremula::run_dir::fingerprint_of(DIVERGENT.as_bytes())),
+        "the message names what was found: {complaint}"
+    );
+    assert!(
+        complaint.contains(&tremula::run_dir::fingerprint_of(MANIFEST.as_bytes())),
+        "and what the run's own name says it should have been: {complaint}"
+    );
+}
+
 #[test]
 fn a_document_that_is_not_the_document_it_should_be_is_refused_by_name() {
     let workspace = Workspace::new();
@@ -441,16 +573,63 @@ fn a_comment_that_merely_quotes_the_marker_is_not_ours() {
     assert!(which_to_replace(&[quoting], &ours).is_none());
 }
 
-/// A program's own comment is preferred over one that matches and looks like a person's, so
-/// that a repeated run lands on the comment it wrote rather than beside it.
+/// A program's own comment is the only one replaced, so a repeated run lands on the comment
+/// it wrote rather than beside it.
 #[test]
-fn a_comment_a_program_wrote_is_preferred_among_the_ones_that_match() {
+fn a_comment_a_program_wrote_is_the_one_chosen_among_the_ones_that_match() {
     let ours = marker("owner/name", 7);
     let listed = vec![listed(1, &ours, true), listed(2, &ours, false)];
 
     let replacing = which_to_replace(&listed, &ours).expect("one of them is ours");
 
     assert_eq!(replacing.id, 1);
+}
+
+/// The blocker this rule exists for. A token that may comment on a pull request may also edit
+/// anybody else's comment on it, so a person who wrote the marker out — quoting it, asking
+/// what it is, pasting a previous report — is holding a comment a write could be addressed
+/// to. It never is: nothing of ours matches, so a new comment is posted and what they wrote
+/// stays as they wrote it.
+#[test]
+fn a_persons_comment_carrying_the_marker_exactly_is_still_never_replaced() {
+    let ours = marker("owner/name", 7);
+    let theirs = described_as(
+        555,
+        &format!("{ours}\n### tremula · mutation testing\n"),
+        "clay",
+    );
+
+    assert_eq!(theirs.first_line, ours, "the marker, to the character");
+    assert!(!theirs.by_a_program, "a person wrote it");
+    assert!(
+        which_to_replace(&[theirs], &ours).is_none(),
+        "a new comment is posted rather than a person's being patched"
+    );
+}
+
+/// The comparison is exact on the right-hand end too. A first line of the marker and a space
+/// is a line somebody typed, and accepting it would mean accepting them.
+#[test]
+fn a_first_line_of_the_marker_and_trailing_space_is_not_the_marker() {
+    let ours = marker("owner/name", 7);
+    let padded = listed(9, &format!("{ours} "), true);
+
+    assert!(which_to_replace(&[padded], &ours).is_none());
+    assert_eq!(
+        first_line(&format!("{ours} \nthe body\n")),
+        format!("{ours} "),
+        "the space is part of what the first line says"
+    );
+}
+
+/// The one thing that does come off the end: a body stored with Windows line endings differs
+/// from one this wrote in how it was transmitted, not in what it says.
+#[test]
+fn a_carriage_return_at_the_end_of_the_first_line_does_not_hide_the_marker() {
+    let ours = marker("owner/name", 7);
+
+    assert_eq!(first_line(&format!("{ours}\r\nthe body\r\n")), ours);
+    assert!(which_to_replace(&[listed(9, &ours, true)], &ours).is_some());
 }
 
 #[test]
@@ -470,6 +649,16 @@ fn listed(id: u64, first_line: &str, by_a_program: bool) -> Listed {
         id,
         first_line: first_line.to_owned(),
         by_a_program,
+    }
+}
+
+/// One comment as a person's account would arrive: whatever they wrote, under their own login,
+/// which the platform reports as a user rather than as a program.
+fn described_as(id: u64, body: &str, login: &str) -> Listed {
+    Listed {
+        id,
+        first_line: first_line(body),
+        by_a_program: login.ends_with("[bot]"),
     }
 }
 

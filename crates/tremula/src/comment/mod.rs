@@ -2,10 +2,22 @@
 //!
 //! # Where the evidence comes from
 //!
-//! The manifest in the working tree, and the run directory. Not a bundle: a run with nothing
-//! to test never produces one, and that is precisely the run whose comment is most worth
-//! having — a change every line of which is uncovered has no mutants and one real finding.
-//! So the two documents this reads are the two that always exist.
+//! The run directory, and the manifest in the working tree when the run directory has none.
+//! Not a bundle: a run with nothing to test never produces one, and that is precisely the run
+//! whose comment is most worth having — a change every line of which is uncovered has no
+//! mutants and one real finding. So the documents this reads are the ones that always exist.
+//!
+//! The order matters, and it is the one thing here that is about correctness rather than
+//! convenience. A report names a mutant by its identifier and by nothing else, so the text of
+//! every mutation the comment quotes comes out of a manifest — and a run keeps the manifest it
+//! was given, byte for byte, beside its report. That copy is the one to read. The working
+//! tree's manifest is a *later* document: a second generation has overwritten it, or a rebase
+//! has moved every span in it, and pairing it with an older run's verdicts would put somebody
+//! else's spans and somebody else's replacements under this run's numbers.
+//!
+//! Only a run that tested nothing has no manifest of its own, and that is the run whose
+//! comment is made from the working tree's — held to the run-id rule first, which is the only
+//! link there is between the two. A mismatch there is refused rather than reported around.
 //!
 //! # The two modes, and why the first one is the product
 //!
@@ -35,13 +47,14 @@ use std::{
 use tremula_contracts::{manifest::Manifest, report::Report, triage::Triage};
 
 use crate::{
+    bundle::collect::MANIFEST,
     comment::{
         github::{GitHub, PostError, Poster, marker, repository, with_marker},
         render::{Evidence, render},
     },
     generate::command::DEFAULT_MANIFEST,
     orchestrate::EXIT_FAILURE,
-    run_dir::TREMULA_DIR,
+    run_dir::{TREMULA_DIR, fingerprint, fingerprint_of},
     triage::{TRIAGE_DOCUMENT, inputs::REPORT},
 };
 
@@ -61,7 +74,8 @@ pub struct CommentArgs {
     #[arg(long, value_name = "DIR")]
     pub run: Option<PathBuf>,
     /// The manifest the run was given, which is where the mutations and the record of how
-    /// they were chosen are. Defaults to `tremula-manifest.json` in the project.
+    /// they were chosen are. Only consulted for a run that kept no copy of its own, which is
+    /// a run that had nothing to test. Defaults to `tremula-manifest.json` in the project.
     #[arg(long, value_name = "PATH")]
     pub manifest: Option<PathBuf>,
     /// Project the run and the manifest belong to.
@@ -114,6 +128,21 @@ pub enum CommentFailure {
     NoRunDirectory {
         /// The path that was given.
         path: PathBuf,
+    },
+    /// The manifest outside the run is not the one the run ran.
+    #[error(
+        "`{}` is not the manifest run {run_id} was given: it hashes to {found}, and the run's own name says {expected}; the run kept no copy of its manifest, so pass `--manifest` with the document that run was generated from",
+        path.display()
+    )]
+    ManifestOfAnotherRun {
+        /// The manifest that was read.
+        path: PathBuf,
+        /// The run whose report is being reported on.
+        run_id: String,
+        /// What the manifest that was read hashes to.
+        found: String,
+        /// What the run's own name says its manifest hashed to.
+        expected: String,
     },
     /// The comment could not be posted.
     #[error(transparent)]
@@ -183,9 +212,10 @@ pub fn body(args: &CommentArgs) -> Result<String, CommentFailure> {
         return Err(CommentFailure::NoRunDirectory { path: run });
     }
     // Resolved, because the run this is pointed at is routinely the `latest` link, and every
-    // document read below is read out of the directory that link leads to.
+    // document read below is read out of the directory that link leads to — including the
+    // run's own name, which is that directory's and not the link's.
     let resolved = fs::canonicalize(&run).unwrap_or(run);
-    let manifest: Manifest = document(&which_manifest(args), "manifest")?;
+    let manifest: Manifest = the_manifest_this_run_ran(args, &resolved)?;
     let report: Report = document(&resolved.join(REPORT), "report")?;
     let triage: Option<Triage> = optional(&resolved.join(TRIAGE_DOCUMENT), "triage")?;
     Ok(render(&Evidence {
@@ -203,7 +233,51 @@ fn where_to_look(args: &CommentArgs) -> PathBuf {
         .unwrap_or_else(|| args.project.join(TREMULA_DIR).join(RUNS_DIR).join(LATEST))
 }
 
-/// Which manifest to read: the one named, or the project's own.
+/// The manifest the verdicts in this run were reached about.
+///
+/// The run's own copy whenever there is one, which is every run that had anything to test: a
+/// run keeps the manifest it was given byte for byte, and that copy cannot have moved on since.
+/// The working tree's manifest is only reached for when the run kept none — a run of a manifest
+/// with nothing in it — and then it is held to the run-id rule before it is believed, because
+/// nothing else links the two. Two manifests can carry the same mutants under the same
+/// identifiers and name no run of their own at all.
+///
+/// A run whose name carries no fingerprint has nothing to compare against, and passing it is
+/// the same decision a bundle makes: that would be a rule about names rather than about
+/// evidence.
+fn the_manifest_this_run_ran(args: &CommentArgs, run: &Path) -> Result<Manifest, CommentFailure> {
+    let kept = run.join(MANIFEST);
+    if kept.is_file() {
+        return document(&kept, "manifest");
+    }
+    let outside = which_manifest(args);
+    let bytes = fs::read(&outside).map_err(|err| CommentFailure::Unreadable {
+        path: outside.clone(),
+        reason: err.to_string(),
+    })?;
+    let run_id = run
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .unwrap_or_default();
+    if let Some(expected) = fingerprint(run_id) {
+        let found = fingerprint_of(&bytes);
+        if found != expected {
+            return Err(CommentFailure::ManifestOfAnotherRun {
+                path: outside,
+                run_id: run_id.to_owned(),
+                found,
+                expected: expected.to_owned(),
+            });
+        }
+    }
+    serde_json::from_slice(&bytes).map_err(|err| CommentFailure::Invalid {
+        path: outside,
+        what: "manifest",
+        reason: err.to_string(),
+    })
+}
+
+/// Which manifest outside the run to read: the one named, or the project's own.
 fn which_manifest(args: &CommentArgs) -> PathBuf {
     args.manifest
         .clone()
