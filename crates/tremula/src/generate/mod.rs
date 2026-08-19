@@ -52,6 +52,7 @@ pub mod judge;
 pub mod openai;
 pub mod prompt;
 pub mod round;
+pub mod selection;
 
 /// A source of mutants for one function at a time.
 pub trait MutantGenerator {
