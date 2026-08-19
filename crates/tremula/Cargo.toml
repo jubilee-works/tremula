@@ -66,6 +66,10 @@ name = "e2e_bundle"
 required-features = ["e2e"]
 
 [[test]]
+name = "e2e_selection"
+required-features = ["e2e"]
+
+[[test]]
 name = "judge_accuracy"
 required-features = ["judge_accuracy"]
 
