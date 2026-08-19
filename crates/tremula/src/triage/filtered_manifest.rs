@@ -306,6 +306,7 @@ mod tests {
                 .enumerate()
                 .map(|(ordinal, id)| mutant(id, u64::try_from(ordinal + 1).unwrap()))
                 .collect(),
+            selection: None,
         }
     }
 

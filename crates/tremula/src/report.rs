@@ -331,6 +331,7 @@ mod tests {
             language: Language::Python,
             base: Base { revision: None },
             mutants,
+            selection: None,
         };
         let results = Results {
             schema_version: super::SCHEMA_VERSION.to_owned(),

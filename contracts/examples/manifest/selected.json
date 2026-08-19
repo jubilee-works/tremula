@@ -1,0 +1,60 @@
+{
+  "schema_version": "0.1",
+  "language": "python",
+  "base": { "revision": "4c9a1f7e2b8d0a3c5e7f9b1d3f5a7c9e1b3d5f70" },
+  "mutants": [
+    {
+      "id": "6b8c0d2e4f6a80b2c4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b8c0d2e4f6a80b",
+      "file": "src/scheduling/overlap.py",
+      "base_file_sha256": "3cfd5cb2b71ccbb3e57f07c29f6e228748ce2a7caacffbc9c9e020ce31a5f761",
+      "span": { "start_byte": 174, "end_byte": 191 },
+      "original": "start < other_end",
+      "replacement": "start <= other_end",
+      "description": "Treat an interval that ends where the next begins as overlapping.",
+      "provenance": {
+        "generator": {
+          "name": "tremula-generate",
+          "version": "0.1.0",
+          "model": "gpt-5.2-2025-12-11",
+          "prompt_version": "3",
+          "generated_at": "2026-08-19T09:12:51Z"
+        }
+      }
+    }
+  ],
+  "selection": {
+    "diff_base": "origin/main",
+    "merge_base": "9f2c1a4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b",
+    "coverage": "lcov.info",
+    "functions": [
+      {
+        "file": "src/scheduling/overlap.py",
+        "function": "overlaps",
+        "span": { "start_byte": 118, "end_byte": 214 },
+        "lines": { "start_line": 5, "end_line": 9 },
+        "candidate_lines": 3,
+        "inferred_tests": ["tests/test_overlap.py"],
+        "generation": { "proposed": 4, "recorded": 1 }
+      }
+    ],
+    "skipped_over_limit": [
+      {
+        "file": "src/scheduling/sync.py",
+        "function": "Calendar.push",
+        "span": { "start_byte": 402, "end_byte": 588 },
+        "lines": { "start_line": 19, "end_line": 27 },
+        "candidate_lines": 1,
+        "inferred_tests": [],
+        "generation": { "proposed": 0, "recorded": 0 }
+      }
+    ],
+    "coverage_gaps": [
+      {
+        "file": "src/scheduling/sync.py",
+        "ranges": [{ "start_line": 42, "end_line": 44 }]
+      }
+    ],
+    "files_not_in_coverage": ["src/scheduling/experiment.py"],
+    "lines_outside_functions": 2
+  }
+}

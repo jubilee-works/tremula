@@ -22,6 +22,17 @@
     "schema_version": {
       "description": "Contract version of this document.",
       "type": "string"
+    },
+    "selection": {
+      "description": "Why these targets were chosen, when the generator chose them for itself.\n\nAbsent when a person named the functions. Nothing that reads a manifest to\nrun it looks at this: it is the record of a decision, kept beside the\ndecision's result so that whoever receives the evidence receives the reason\nwith it.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Selection"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -44,6 +55,49 @@
         }
       }
     },
+    "CoverageGap": {
+      "description": "The changed lines of one file that no test reached.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "description": "The file, POSIX-style and relative to the project root.",
+          "type": "string"
+        },
+        "ranges": {
+          "description": "The uncovered stretches, in ascending order and merged where they touch.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LineRange"
+          }
+        }
+      },
+      "required": [
+        "file",
+        "ranges"
+      ]
+    },
+    "Generation": {
+      "description": "What one function's generation produced.\n\nBoth numbers, because their difference is the fact worth reading: a function\nwith proposals and no records is a function every proposal about which was\nrefused, and a run reporting no survivors for it is reporting nothing at all.",
+      "type": "object",
+      "properties": {
+        "proposed": {
+          "description": "How many mutations a model proposed for it.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "recorded": {
+          "description": "How many of those the manifest carries.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "proposed",
+        "recorded"
+      ]
+    },
     "Language": {
       "description": "Languages with a tremula pack. Adding a variant is a breaking change for\nolder consumers, which is intended: an unknown language has no pack.",
       "oneOf": [
@@ -52,6 +106,28 @@
           "type": "string",
           "const": "python"
         }
+      ]
+    },
+    "LineRange": {
+      "description": "A stretch of lines, 1-indexed and inclusive at both ends.\n\nA single line is a range whose ends are equal. Named members rather than a pair\nof numbers, so that a reader of the document never has to guess which end is\nwhich or whether the last line is included.",
+      "type": "object",
+      "properties": {
+        "end_line": {
+          "description": "The last line of the stretch, included in it.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "start_line": {
+          "description": "The first line of the stretch.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "start_line",
+        "end_line"
       ]
     },
     "Mutant": {
@@ -102,6 +178,120 @@
         "span",
         "original",
         "replacement"
+      ]
+    },
+    "SelectedFunction": {
+      "description": "One function a generation chose to ask about, and why.",
+      "type": "object",
+      "properties": {
+        "candidate_lines": {
+          "description": "How many of this function's lines the change touched. What the limit sorts on.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "file": {
+          "description": "The file it is in, POSIX-style and relative to the project root.",
+          "type": "string"
+        },
+        "function": {
+          "description": "The function, as the language pack names it.",
+          "type": "string"
+        },
+        "generation": {
+          "description": "What asking about this function came to.",
+          "$ref": "#/$defs/Generation"
+        },
+        "inferred_tests": {
+          "description": "The test file found for this function by convention, or an empty list when\nnone was. At most one: an exact `test_<stem>.py` beside the package the\ntarget file belongs to, and no wider search than that.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lines": {
+          "description": "The same extent as lines, for a person to read. Derived from `span` against\nthe bytes of the file, and carried so that a reader does not have to count\nnewlines to find what was selected. Where the two could disagree — a file\nedited since — `span` is what a consumer obeys.",
+          "$ref": "#/$defs/LineRange"
+        },
+        "span": {
+          "description": "Where the function is. This is the authority on which function was chosen:\na file can spell one name more than once, and the byte range is what tells\nthose apart.",
+          "$ref": "#/$defs/Span"
+        }
+      },
+      "required": [
+        "file",
+        "function",
+        "span",
+        "lines",
+        "candidate_lines",
+        "inferred_tests",
+        "generation"
+      ]
+    },
+    "Selection": {
+      "description": "What a generator looked at, what it chose out of it, and what it left behind.\n\nEvery list here is written even when it is empty, and that is the point of the\ndocument: a selection that reported only what it chose would be indistinguishable\nfrom one that quietly dropped half of what it found. A reader has to be able to\naccount for every changed line — chosen, capped, uncovered, or outside any\nfunction.\n\n# What this does to a run's identity\n\nA run derives its identifier from the bytes of the manifest it was given, and\nthese bytes are part of that manifest. So the same mutants selected against a\ndifferent base, or with different coverage, produce a different run identifier.\nThat is the intended behaviour and not a defect: two runs whose reasons differ\nare two runs.",
+      "type": "object",
+      "properties": {
+        "coverage": {
+          "description": "The coverage document that was read, as the caller spelled it. Absent when\nnone was given, which is the degraded selection: a mutant that survives may\nhave survived because no test ever reached it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage_gaps": {
+          "description": "Changed lines no test reached, per file. Reported rather than discarded: a\nchanged line nothing covers is the finding, even though it is not a target.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CoverageGap"
+          }
+        },
+        "diff_base": {
+          "description": "The revision the changes were measured against, as the caller spelled it.",
+          "type": "string"
+        },
+        "files_not_in_coverage": {
+          "description": "Changed files the coverage document says nothing at all about, POSIX-style\nand relative to the project root.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "functions": {
+          "description": "The functions that were selected, in the order they were asked about.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SelectedFunction"
+          }
+        },
+        "lines_outside_functions": {
+          "description": "How many changed lines fell inside no function — a class body, a module-level\nassignment, an import. Counted rather than listed, because what a reader does\nabout them is the same whichever line it was.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "merge_base": {
+          "description": "The commit the comparison actually ran from — the merge base of `diff_base`\nand the working revision — or absent when it could not be observed.\n\nRecorded because it, and not `diff_base`, is what the line numbers mean: a\nbranch that has fallen behind its base would otherwise report the base's own\ndrift as this change's.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "skipped_over_limit": {
+          "description": "The functions that were selected and then cut by the limit on how many one\ngeneration asks about. Nothing was asked about these, so their `generation`\ncounts are zero and their `inferred_tests` are empty.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SelectedFunction"
+          }
+        }
+      },
+      "required": [
+        "diff_base",
+        "functions",
+        "skipped_over_limit",
+        "coverage_gaps",
+        "files_not_in_coverage",
+        "lines_outside_functions"
       ]
     },
     "Span": {

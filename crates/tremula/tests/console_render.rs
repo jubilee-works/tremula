@@ -133,6 +133,7 @@ fn judged(outcomes: &[Outcome]) -> (Report, Baseline) {
         language: Language::Python,
         base: Base { revision: None },
         mutants,
+        selection: None,
     };
     let results = Results {
         schema_version: SCHEMA_VERSION.to_owned(),

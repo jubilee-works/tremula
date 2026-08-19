@@ -40,6 +40,7 @@ fn manifest(mutants: Vec<Mutant>) -> Manifest {
         language: Language::Python,
         base: Base { revision: None },
         mutants,
+        selection: None,
     }
 }
 

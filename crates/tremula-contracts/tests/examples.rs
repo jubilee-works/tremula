@@ -77,6 +77,8 @@ fn valid_examples_are_accepted() {
     accepts::<Manifest>("manifest/minimal.json", "manifest.schema.json");
     accepts::<Manifest>("manifest/full.json", "manifest.schema.json");
     accepts::<Manifest>("manifest/generated.json", "manifest.schema.json");
+    accepts::<Manifest>("manifest/selected.json", "manifest.schema.json");
+    accepts::<Manifest>("manifest/selected-empty.json", "manifest.schema.json");
     accepts::<Results>("results/completed.json", "results.schema.json");
     accepts::<Baseline>("baseline/passing.json", "baseline.schema.json");
     accepts::<Report>("report/survived.json", "report.schema.json");
@@ -166,6 +168,75 @@ fn an_absent_optional_in_a_bundle_index_reads_as_an_empty_one() {
         round_tripped,
         read_json("examples/bundle/minimal.json"),
         "an empty optional must be written as an absent key, not as a null"
+    );
+}
+
+/// A manifest that chose its own targets says why, and says it in a form a reader
+/// can act on: the span is what identifies a function, the lines are what a person
+/// reads, and a coverage gap names its ranges rather than leaving a reader to guess
+/// what the numbers in an array meant.
+#[test]
+fn a_manifest_can_say_why_its_targets_were_chosen() {
+    let document = read_json("examples/manifest/selected.json");
+    let selected: Manifest = serde_json::from_value(document.clone()).unwrap();
+
+    let selection = selected.selection.expect("this example chose its targets");
+    assert_eq!(selection.diff_base, "origin/main");
+    assert!(selection.coverage.is_some(), "not a degraded selection");
+    let chosen = &selection.functions[0];
+    assert!(
+        chosen.span.start_byte < chosen.span.end_byte,
+        "the span is the authority on where the function is"
+    );
+    assert!(chosen.lines.start_line <= chosen.lines.end_line);
+    assert_eq!(chosen.generation.recorded, 1);
+    assert_eq!(
+        selection.skipped_over_limit.len(),
+        1,
+        "a capped function is recorded rather than dropped in silence"
+    );
+    assert_eq!(selection.coverage_gaps[0].ranges[0].start_line, 42);
+    assert_eq!(
+        document["selection"]["coverage_gaps"][0]["ranges"][0]["start_line"],
+        serde_json::json!(42),
+        "a gap's ranges are named objects, never anonymous pairs"
+    );
+}
+
+/// The selection matters most in the manifest that has nothing to run: a pull
+/// request whose every changed line is uncovered produces no mutants at all, and
+/// the record of what was looked at is the whole of what such a run has to say.
+#[test]
+fn a_manifest_with_nothing_to_run_still_says_what_it_looked_at() {
+    let empty: Manifest =
+        serde_json::from_value(read_json("examples/manifest/selected-empty.json")).unwrap();
+
+    assert!(empty.mutants.is_empty());
+    let selection = empty
+        .selection
+        .expect("nothing chosen is still a selection");
+    assert!(selection.functions.is_empty());
+    assert_eq!(selection.coverage_gaps.len(), 1);
+    assert_eq!(selection.coverage_gaps[0].ranges.len(), 2);
+}
+
+/// A manifest nobody selected for carries no selection at all, and re-serializing
+/// one must not invent a key that says "nothing was selected" where the original
+/// said nothing about selection.
+#[test]
+fn a_manifest_written_without_a_selection_says_nothing_about_one() {
+    let manual: Manifest =
+        serde_json::from_value(read_json("examples/manifest/generated.json")).unwrap();
+
+    assert!(manual.selection.is_none());
+    let mut spelled_out = read_json("examples/manifest/generated.json");
+    spelled_out["selection"] = serde_json::Value::Null;
+    let same: Manifest = serde_json::from_value(spelled_out).unwrap();
+    assert_eq!(manual, same, "an explicit null must read as an absent key");
+    assert_eq!(
+        serde_json::to_value(&same).unwrap(),
+        read_json("examples/manifest/generated.json"),
+        "an absent selection must be written as an absent key, not as a null"
     );
 }
 

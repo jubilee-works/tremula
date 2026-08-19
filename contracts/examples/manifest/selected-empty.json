@@ -1,0 +1,24 @@
+{
+  "schema_version": "0.1",
+  "language": "python",
+  "base": { "revision": "4c9a1f7e2b8d0a3c5e7f9b1d3f5a7c9e1b3d5f70" },
+  "mutants": [],
+  "selection": {
+    "diff_base": "origin/main",
+    "merge_base": "9f2c1a4d6e8f0a2b4c6d8e0f2a4b6c8d0e2f4a6b",
+    "coverage": "lcov.info",
+    "functions": [],
+    "skipped_over_limit": [],
+    "coverage_gaps": [
+      {
+        "file": "src/scheduling/sync.py",
+        "ranges": [
+          { "start_line": 42, "end_line": 44 },
+          { "start_line": 51, "end_line": 51 }
+        ]
+      }
+    ],
+    "files_not_in_coverage": [],
+    "lines_outside_functions": 0
+  }
+}

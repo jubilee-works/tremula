@@ -35,6 +35,8 @@ CASES: list[tuple[str, type[BaseModel], str]] = [
     ("manifest/minimal.json", Manifest, "manifest.schema.json"),
     ("manifest/full.json", Manifest, "manifest.schema.json"),
     ("manifest/generated.json", Manifest, "manifest.schema.json"),
+    ("manifest/selected.json", Manifest, "manifest.schema.json"),
+    ("manifest/selected-empty.json", Manifest, "manifest.schema.json"),
     ("results/completed.json", Results, "results.schema.json"),
     ("baseline/passing.json", Baseline, "baseline.schema.json"),
     ("capabilities/python.json", Capabilities, "capabilities.schema.json"),
@@ -98,6 +100,27 @@ def test_examples_parse_and_dump_within_the_schema(
         instance=parsed.model_dump(mode="json", exclude_none=True),
         schema=_load(f"schemas/{schema}"),
     )
+
+
+@pytest.mark.parametrize(
+    "example", ["manifest/selected.json", "manifest/selected-empty.json"]
+)
+def test_a_selection_survives_the_round_trip_byte_for_byte(example: str) -> None:
+    # Validating the dump against the schema is not enough on its own: a mirror
+    # that dropped `selection` entirely would still produce a document the schema
+    # accepts, because a selection is optional. So the record of why a run's
+    # targets were chosen is compared field for field against what was read.
+    document = _load(f"examples/{example}")
+
+    dumped = Manifest.model_validate(document).model_dump(mode="json", exclude_none=True)
+
+    assert dumped["selection"] == document["selection"]
+
+
+def test_a_manifest_nobody_selected_for_carries_no_selection() -> None:
+    document = _load("examples/manifest/generated.json")
+
+    assert Manifest.model_validate(document).selection is None
 
 
 def test_a_mutant_without_a_span_is_rejected() -> None:

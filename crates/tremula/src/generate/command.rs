@@ -295,6 +295,7 @@ fn write(
             revision: provenance::observe(&args.project, OffsetDateTime::now_utc()).revision,
         },
         mutants,
+        selection: None,
     };
     // Every mutant was checked one at a time, so this is the invariant rather than
     // the check: what a manifest says as a whole — no repeated identifier, every
@@ -382,6 +383,7 @@ fn check_with_the_pack(
         language: Language::Python,
         base: Base { revision: None },
         mutants: vec![mutant.clone()],
+        selection: None,
     };
     let directory = tempfile::tempdir().map_err(|err| PackError::Unwritable {
         path: std::env::temp_dir(),
