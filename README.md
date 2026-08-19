@@ -78,9 +78,63 @@ uv run tremula triage --model gpt-5.2-2025-12-11
 uv run tremula bundle
 ```
 
+## Mutate what a pull request changed
+
+Instead of naming functions, name a revision to compare against and let
+`generate` work out the targets. Give it your test run's coverage and it mutates
+only the changed lines a test really reaches:
+
+```sh
+uv run coverage lcov -o lcov.info
+uv run tremula generate --diff-base origin/main --coverage lcov.info \
+  --model gpt-5.2-2025-12-11
+uv run tremula run --manifest tremula-manifest.json
+uv run tremula comment
+```
+
+```text
+tremula generate · ranges.py · 2 function(s) · model: gpt-5.2-2025-12-11
+
+selected 2 of 2 functions · 0 capped · 1 test file(s) excluded
+
+  overlaps: 4 proposed · 4 recorded
+  merge: 4 proposed · 3 recorded · refused: original_not_found ×1
+
+wrote 7 mutant(s) to ./tremula-manifest.json
+tokens: 1364 prompt · 872 completion · 2236 total
+exit 0 (7 mutant(s) to run)
+```
+
+The comparison runs from where your branch left the base, so a base that has
+moved on does not put its own commits into your change. `--max-functions`
+defaults to 5, and what the limit leaves out is written down rather than dropped
+in silence. Without `--coverage` every changed function is a target and the
+output says so, because a mutant that survives may have survived because no test
+runs it.
+
+**A change nothing could be mutated in is a success, not a failure.** It exits
+`0` and still writes the manifest, because the record of which changed lines no
+test reaches is the most useful thing such a run produces. `run` writes a report
+for it and stops, so a CI job can be one list of commands.
+
+Why each function was chosen is written into the manifest under `selection`, and
+travels from there into the run directory and the evidence bundle untouched.
+`tremula comment` reads the manifest and the run directory and prints a pull
+request comment; `--github-pr <N>` posts it, replacing its own previous comment
+rather than adding to the thread. See
+[Comments](docs/01-architecture/comments.md).
+
 > [!WARNING]
 > **Asking a model costs money and sends the named files to its provider.**
-> Only `generate` and `triage` make network calls.
+> Only `generate` and `triage` make network calls — and `tremula comment` when it
+> is asked to post one with `--github-pr`.
+>
+> **A selection sends the test files it found, too.** `generate --diff-base`
+> looks for each target's tests by convention — `test_<stem>.py` beside the file
+> or in a `tests` directory of a package it sits inside — and any file it finds is
+> read and sent to the provider along with the function. What it found is written
+> into the manifest under `selection.functions[].inferred_tests`, so what was sent
+> is always on the record.
 >
 > **A manifest is code you are about to execute.** Every `replacement` runs as
 > part of your test suite, so only run manifests you trust.
@@ -101,6 +155,7 @@ modified working tree.
 | Set up and complete a first run, including recovery | [Run your first mutation test](docs/guides/first-run.md) |
 | Understand triage results and dismiss a survivor | [Review and dismiss survivors](docs/guides/survivor-review.md) |
 | Package a run for a colleague or a coding agent | [Share an evidence bundle](docs/guides/bundle-sharing.md) |
+| Report a run on a pull request | [Comments](docs/01-architecture/comments.md) |
 | Architecture, contracts, and decision records | [Documentation index](docs/README.md) |
 
 Generated JSON Schemas and shared examples live in

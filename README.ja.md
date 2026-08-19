@@ -80,10 +80,65 @@ uv run tremula triage --model gpt-5.2-2025-12-11
 uv run tremula bundle
 ```
 
+## プルリクエストが変えた箇所だけを変異させる
+
+関数を名指しする代わりに、比較対象のリビジョンを渡せば`generate`が対象を
+自分で決めます。テスト実行のカバレッジも渡すと、変更行のうちテストが実際に
+通る行だけを変異させます:
+
+```sh
+uv run coverage lcov -o lcov.info
+uv run tremula generate --diff-base origin/main --coverage lcov.info \
+  --model gpt-5.2-2025-12-11
+uv run tremula run --manifest tremula-manifest.json
+uv run tremula comment
+```
+
+```text
+tremula generate · ranges.py · 2 function(s) · model: gpt-5.2-2025-12-11
+
+selected 2 of 2 functions · 0 capped · 1 test file(s) excluded
+
+  overlaps: 4 proposed · 4 recorded
+  merge: 4 proposed · 3 recorded · refused: original_not_found ×1
+
+wrote 7 mutant(s) to ./tremula-manifest.json
+tokens: 1364 prompt · 872 completion · 2236 total
+exit 0 (7 mutant(s) to run)
+```
+
+比較はブランチがベースから分岐した地点から行われるため、ベースがその後
+進んでいてもベース自身のコミットがこの変更に混ざりません。
+`--max-functions`の既定値は5で、上限で外れた関数は黙って捨てられず
+記録されます。`--coverage`なしで実行すると変更された関数がすべて対象に
+なり、出力がそのことを明示します — 生き残ったミュータントが「テストが
+通っていないから」生き残った可能性があるからです。
+
+**変異させるものが何もない変更は失敗ではなく成功です。** 終了コードは`0`で、
+manifestも書き出します。変更行のうちどのテストも通らない箇所がどこかという
+記録が、そうした実行のもっとも価値ある成果だからです。`run`はそうした
+manifestについてレポートだけを書いて終わるので、CIジョブは分岐なしに
+コマンドを並べれば済みます。
+
+各関数が選ばれた理由はmanifestの`selection`に記録され、そこから実行
+ディレクトリと証拠バンドルまでそのまま運ばれます。`tremula comment`は
+manifestと実行ディレクトリを読んでプルリクエストのコメント本文を出力し、
+`--github-pr <N>`を渡すと投稿します — スレッドに積み増す代わりに、自分が
+以前残したコメントを置き換えます。詳しくは
+[Comments](docs/01-architecture/comments.md)を参照してください。
+
 > [!WARNING]
 > **モデルへの依頼には費用がかかり、指定したファイルがそのプロバイダーに
-> 送信されます。** ネットワーク呼び出しを行うのは`generate`と`triage`
-> だけです。
+> 送信されます。** ネットワーク呼び出しを行うのは`generate`、`triage`、
+> そして`--github-pr`で投稿を求められた`tremula comment`だけです。
+>
+> **選定モードは自分で見つけたテストファイルも送信します。**
+> `generate --diff-base`は対象ごとに慣例に従ってテストを探します —
+> ファイルの隣の`test_<stem>.py`、またはそのファイルが属するパッケージの
+> `tests`ディレクトリ — 見つかったファイルは関数とともに読まれ、
+> プロバイダーに送信されます。何が見つかったかはmanifestの
+> `selection.functions[].inferred_tests`に記録されるため、何が送信されたかは
+> 常に記録として残ります。
 >
 > **manifestはこれから実行するコードです。** すべての`replacement`は
 > テストスイートの一部として実行されるため、信頼できるmanifestだけを
@@ -105,6 +160,7 @@ uv run tremula bundle
 | 復旧まで含めて初回実行を完了する | [はじめてのミューテーションテスト](docs/guides/first-run.md) |
 | triage結果を理解しサバイバーをdismissする | [サバイバーの確認とdismiss](docs/guides/survivor-review.md) |
 | 同僚やコーディングエージェント向けに実行結果をパッケージ化する | [証拠バンドルの共有](docs/guides/bundle-sharing.md) |
+| プルリクエストに実行結果を報告する | [Comments](docs/01-architecture/comments.md) |
 | アーキテクチャ、コントラクト、決定記録 | [ドキュメント索引](docs/README.md) |
 
 生成されたJSON Schemaと共有例は[`contracts/`](contracts/README.md)に
