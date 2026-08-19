@@ -5,6 +5,7 @@
 pub mod artifacts;
 pub mod bundle;
 pub mod child;
+pub mod comment;
 pub mod console;
 pub mod decision;
 pub mod dismiss;

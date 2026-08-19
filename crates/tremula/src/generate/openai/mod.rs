@@ -29,6 +29,7 @@ mod transport;
 use answer::Attempted;
 use reply::{Answered, mutations};
 use transport::{Declined, Strictness, Unsent, strict_schema};
+pub(crate) use transport::{quote, redact};
 
 pub use transport::{
     ENDPOINT, KEY_VARIABLE, MAX_COMPLETION_TOKENS, RETRY_AFTER_CAP, TIMEOUT, retry_delay,
