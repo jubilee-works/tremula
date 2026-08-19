@@ -281,6 +281,30 @@ impl Answers {
     }
 }
 
+/// A provider that cannot be reached about one function and answers about every other.
+///
+/// The mixed round, which no single-answer stand-in can produce: what a generation exits with
+/// turns on whether *every* function died of something that was never about the code, and that
+/// question only has an interesting answer when the functions differ.
+struct Mixed {
+    /// A word the source of the function to fail about spells, and no other's does.
+    unreachable_about: &'static str,
+    /// The mutation proposed for every other function, as original and replacement.
+    proposing: (&'static str, &'static str),
+}
+
+impl MutantGenerator for Mixed {
+    fn generate(&self, request: &GenerationRequest) -> Result<GenerationOutcome, GenerateError> {
+        if request.source.contains(self.unreachable_about) {
+            return Err(GenerateError::unsent(GenerateFailure::Unreachable {
+                reason: "connection refused".to_owned(),
+            }));
+        }
+        let (original, replacement) = self.proposing;
+        Answers::about(original, replacement).generate(request)
+    }
+}
+
 impl MutantGenerator for Answers {
     fn generate(&self, _request: &GenerationRequest) -> Result<GenerationOutcome, GenerateError> {
         if let Some(failure) = self.failure {
@@ -548,6 +572,59 @@ fn a_mutation_that_lands_where_no_test_ever_went_is_refused() {
     );
 }
 
+/// The other side of that rule, and the one no test pinned. Without coverage there is
+/// nothing to hold a mutation to, so the same mutation of the same never-reached line is
+/// recorded: the check is what a coverage document buys, not a rule of its own.
+#[test]
+fn a_mutation_on_a_line_no_test_went_to_is_recorded_when_nothing_says_which_ran() {
+    let fixture = Fixture::new();
+    let mut args = fixture.selecting();
+    args.coverage = None;
+    args.max_functions = 1;
+
+    let generated = command::compose(&args, &Answers::about(UNREACHED, "return True")).unwrap();
+
+    assert_eq!(command::exit_code(&generated), 0);
+    assert_eq!(generated.recorded, 1);
+    assert!(
+        !generated.functions[0]
+            .gathered
+            .refused
+            .contains_key("mutant_on_uncovered_line"),
+        "a check that fired without a coverage document would be refusing on no evidence"
+    );
+}
+
+/// And the boundary within the check itself. A mutation may replace more than one line, and
+/// one of those lines being reached is enough: the mutation is executed, so the suite had its
+/// chance at it. Refusing on the *first* line, or on all of them having to be covered, would
+/// throw away proposals that cross a guard into the body under it.
+#[test]
+fn a_mutation_reaching_one_line_a_test_ran_is_recorded_though_it_covers_one_no_test_did() {
+    let fixture = Fixture::new();
+    let mut args = fixture.selecting();
+    args.max_functions = 1;
+    let across = format!("{UNREACHED}\n    return {CONDITION}");
+
+    let generated = command::compose(
+        &args,
+        &Answers::about(&across, "return False\n    return True"),
+    )
+    .unwrap();
+
+    assert_eq!(command::exit_code(&generated), 0);
+    assert_eq!(
+        generated.recorded, 1,
+        "the second of the two lines is reached four times, so the mutation is run"
+    );
+    assert!(
+        !generated.functions[0]
+            .gathered
+            .refused
+            .contains_key("mutant_on_uncovered_line")
+    );
+}
+
 /// A model that proposed things and had all of them refused is a normal day, not a
 /// broken pipeline. It exits zero — and says so loudly, because a green run that
 /// produced no evidence is exactly what a reader must not mistake for a passing one.
@@ -605,6 +682,61 @@ fn a_selection_whose_functions_the_model_declined_still_succeeds() {
     let generated = command::compose(&fixture.selecting(), &Answers::refusing()).unwrap();
 
     assert_eq!(command::exit_code(&generated), 0);
+}
+
+/// The boundary between the two, which is where "every" earns its place. One function never
+/// reached the provider and one was answered and had every answer refused — so something was
+/// learned about the second, the credential is demonstrably not the problem, and the run
+/// exits zero. Only a generation in which *no* function reached the provider at all fails.
+#[test]
+fn a_selection_part_unreachable_and_part_refused_still_succeeds() {
+    let fixture = Fixture::new();
+
+    let generated = command::compose(
+        &fixture.selecting(),
+        &Mixed {
+            unreachable_about: "def merge",
+            proposing: (UNREACHED, "return True"),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        command::exit_code(&generated),
+        0,
+        "one function reached the provider, so nothing here says the pipeline is broken"
+    );
+    assert_eq!(generated.recorded, 0, "and nothing survived the checks");
+    let overlaps = &generated.functions[0];
+    assert_eq!(overlaps.function, "overlaps");
+    assert!(
+        overlaps.gathered.failure.is_none(),
+        "this one was answered: {:?}",
+        overlaps.gathered.failure
+    );
+    assert_eq!(
+        overlaps.gathered.refused.get("mutant_on_uncovered_line"),
+        Some(&2),
+        "and every answer was refused: {:?}",
+        overlaps.gathered.refused
+    );
+    let merge = &generated.functions[1];
+    assert_eq!(merge.function, "merge");
+    assert!(
+        merge
+            .gathered
+            .failure
+            .as_ref()
+            .is_some_and(|failure| failure.to_string().contains("connection refused")),
+        "and this one never got that far: {:?}",
+        merge.gathered.failure
+    );
+    let said = tremula::console::render_generation(&generated);
+    assert!(said.contains("exit 0"), "{said}");
+    assert!(
+        said.contains("nothing came of any of them"),
+        "a run with no evidence in it still says so: {said}"
+    );
 }
 
 /// A limit that cut something says what it cut. The selected function here is the one
