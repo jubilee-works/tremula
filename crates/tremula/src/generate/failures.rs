@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use crate::{
     generate::choose::AT,
+    generate::selection::{git::GitError, lcov::CoverageError},
     pack::PackError,
     python_env::EnvError,
     suppressions::SuppressionError,
@@ -120,6 +121,31 @@ pub enum GenerationFailure {
         start: u64,
         /// Where the pack said it ends.
         end: u64,
+    },
+    /// Nothing said what to generate for.
+    ///
+    /// The command line will not let this happen — one of the two ways of naming targets
+    /// is required — so it exists for a caller of the library that named neither.
+    #[error(
+        "nothing says what to generate for; name a file and its functions, or a revision to compare this one against"
+    )]
+    NothingToGenerateFor,
+    /// git could not make the comparison a selection is measured by.
+    #[error(transparent)]
+    Git(#[from] GitError),
+    /// The coverage document could not be read as one.
+    #[error(transparent)]
+    Coverage(#[from] CoverageError),
+    /// The coverage document could not be read at all.
+    #[error(
+        "cannot read the coverage document `{}`: {reason}; check the path, and that the test run that was to produce it really did",
+        path.display()
+    )]
+    CoverageUnreadable {
+        /// The path that was given.
+        path: PathBuf,
+        /// What the operating system reported.
+        reason: String,
     },
     /// The manifest could not be written.
     #[error("cannot write `{}`: {reason}; check that the directory is writable", path.display())]

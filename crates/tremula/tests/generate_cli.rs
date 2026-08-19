@@ -313,6 +313,81 @@ fn a_disambiguated_name_gets_past_the_choice_and_on_to_the_model() {
     assert!(said.contains("wrote nothing"), "{said}");
 }
 
+/// The two ways of saying what to mutate are two policies, and a generation that took
+/// both would be following neither.
+#[test]
+fn naming_a_file_and_a_revision_to_compare_against_at_once_is_refused() {
+    let workspace = Workspace::new();
+    workspace.write_pack(&report("[]"));
+
+    let output = workspace.generate(&["--function", "overlaps", "--diff-base", "origin/main"]);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stderr(&output).contains("cannot be used with"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+/// Coverage narrows a selection and cannot make one: without a revision to compare
+/// against, "every covered function in the project" is what would be left, which is not a
+/// pull request's worth of anything.
+#[test]
+fn coverage_without_a_revision_to_compare_against_is_refused() {
+    let workspace = Workspace::new();
+    workspace.write_pack(&report("[]"));
+
+    let output = Command::cargo_bin("tremula")
+        .unwrap()
+        .env_remove("OPENAI_API_KEY")
+        .args(["generate", "--coverage", "lcov.info"])
+        .arg("--project")
+        .arg(workspace.project())
+        .args(["--model", "gpt-5.2-2025-12-11"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let complaint = stderr(&output);
+    assert!(complaint.contains("--diff-base"), "{complaint}");
+}
+
+/// Neither way of saying what to mutate is a default, because picking one would be
+/// inventing a policy nobody asked for.
+#[test]
+fn a_generation_that_says_nothing_about_what_to_mutate_is_refused() {
+    let workspace = Workspace::new();
+
+    let output = Command::cargo_bin("tremula")
+        .unwrap()
+        .env_remove("OPENAI_API_KEY")
+        .arg("generate")
+        .arg("--project")
+        .arg(workspace.project())
+        .args(["--model", "gpt-5.2-2025-12-11"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    let complaint = stderr(&output);
+    assert!(complaint.contains("--file"), "{complaint}");
+    assert!(complaint.contains("--diff-base"), "{complaint}");
+}
+
+#[test]
+fn the_help_says_what_the_limit_on_selected_functions_is() {
+    let output = Command::cargo_bin("tremula")
+        .unwrap()
+        .args(["generate", "--help"])
+        .output()
+        .unwrap();
+
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("[default: 5]"), "{help}");
+    assert!(help.contains("recorded rather than dropped"), "{help}");
+}
+
 #[test]
 fn the_help_says_what_generate_means_by_a_test() {
     // `run --tests` hands whatever it is given to the project's test runner. These
