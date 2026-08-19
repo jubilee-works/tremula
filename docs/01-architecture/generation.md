@@ -166,13 +166,36 @@ evidence. `run` already handles a manifest with nothing in it — it writes a
 report and stops — so a workflow can be a list of commands rather than a branch,
 gating `triage` and `bundle` on the run having found survivors.
 
-The last row is the one asymmetry worth stating plainly. A model that refused, ran
-out of room, or answered badly has read the question and made a decision about
+The last two rows are the asymmetry worth stating plainly. A model that refused,
+ran out of room, or answered badly has read the question and made a decision about
 it, and another function or another day may go differently. A provider that would
 not take the key, could not be reached, is rate limiting, or answered with
 something that was not its own protocol has said nothing at all — and a wrong
 credential that reported success would be a green build reporting nothing,
-forever.
+forever. "Every" is literal: a generation in which one function never reached the
+provider and another was answered and had every answer refused exits 0, because
+the credential is demonstrably not the problem.
+
+### Making a green run that produced nothing visible
+
+The third row is the one a workflow should annotate, and nothing here does it: an
+exit code cannot distinguish a run that found nothing wrong from a run that
+produced no evidence at all, and emitting a platform's annotation syntax is not
+something a platform-neutral tool should be doing. The console says it, and the
+manifest carries it per function, so the documented workflow is one step over the
+manifest `generate` always writes:
+
+```yaml
+- name: Warn when a generation produced no evidence
+  run: |
+    barren=$(jq '[.selection.functions[] | select(.generation.recorded == 0)] | length' tremula-manifest.json)
+    [ "$barren" = 0 ] || echo "::warning::tremula: $barren selected function(s) produced no mutants — this run is evidence of nothing"
+    [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
+```
+
+The second line is the degraded selection, which is the other thing a green exit
+code hides. Both are annotations rather than failures on purpose: a model having a
+bad day is not a reason to turn a pull request red.
 
 The manual mode's own promise is unchanged by any of this: a person who named a
 function and got no mutants asked for something specific and did not get it, so

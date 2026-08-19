@@ -423,6 +423,14 @@ fn a_function_nothing_survived_for_is_named() {
         body.contains("- `ranges.py` · `merge` — nothing was proposed for it"),
         "{body}"
     );
+    assert!(
+        body.contains(
+            "_The `generate` step's own console output says why for each of them, and a model \
+             asked again may well answer differently — so rerunning is the next thing to try \
+             before reading this as a clean result._"
+        ),
+        "a reader told the result is evidence of nothing is owed the next move: {body}"
+    );
 }
 
 #[test]

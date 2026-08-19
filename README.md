@@ -81,8 +81,11 @@ uv run tremula bundle
 ## Mutate what a pull request changed
 
 Instead of naming functions, name a revision to compare against and let
-`generate` work out the targets. Give it your test run's coverage and it mutates
-only the changed lines a test really reaches:
+`generate` work out the targets. Give it your test run's coverage and the changed
+lines a test really reaches are what decide **which functions** are worth asking
+about. A mutation may then be proposed anywhere inside one of those functions —
+that is where the proposal worth having usually is — and one that replaces no line
+the suite ran is refused just before it would be recorded:
 
 ```sh
 uv run coverage lcov -o lcov.info
@@ -123,6 +126,19 @@ travels from there into the run directory and the evidence bundle untouched.
 request comment; `--github-pr <N>` posts it, replacing its own previous comment
 rather than adding to the thread. See
 [Comments](docs/01-architecture/comments.md).
+
+A green run that produced no mutants is the one result worth annotating, because
+nothing about the exit code distinguishes it from a run that found nothing wrong.
+tremula stays platform-neutral about that; a GitHub workflow makes it visible in
+one step, reading the manifest `generate` always writes:
+
+```yaml
+- name: Warn when a generation produced no evidence
+  run: |
+    barren=$(jq '[.selection.functions[] | select(.generation.recorded == 0)] | length' tremula-manifest.json)
+    [ "$barren" = 0 ] || echo "::warning::tremula: $barren selected function(s) produced no mutants — this run is evidence of nothing"
+    [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
+```
 
 > [!WARNING]
 > **Asking a model costs money and sends the named files to its provider.**

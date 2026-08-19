@@ -84,7 +84,9 @@ uv run tremula bundle
 
 関数を名指しする代わりに、比較対象のリビジョンを渡せば`generate`が対象を
 自分で決めます。テスト実行のカバレッジも渡すと、変更行のうちテストが実際に
-通る行だけを変異させます:
+通る行が、**どの関数を**尋ねる価値があるかを決めます。変異そのものは選ばれた
+関数の中のどこにでも提案されえます — 値打ちのある提案はたいていそちらにあります
+— そして、テストが通らない行を置き換える変異は記録される直前に拒否されます:
 
 ```sh
 uv run coverage lcov -o lcov.info
@@ -126,6 +128,19 @@ manifestと実行ディレクトリを読んでプルリクエストのコメン
 `--github-pr <N>`を渡すと投稿します — スレッドに積み増す代わりに、自分が
 以前残したコメントを置き換えます。詳しくは
 [Comments](docs/01-architecture/comments.md)を参照してください。
+
+ミュータントを1つも作れずに緑で終わった実行こそ、注記を付ける価値があります —
+終了コードだけでは「何も問題が見つからなかった実行」と区別できないからです。
+コアはここでプラットフォーム中立を保ち、GitHubのワークフローであれば、
+`generate`が必ず書き出すmanifestを読んで1ステップで可視化できます:
+
+```yaml
+- name: Warn when a generation produced no evidence
+  run: |
+    barren=$(jq '[.selection.functions[] | select(.generation.recorded == 0)] | length' tremula-manifest.json)
+    [ "$barren" = 0 ] || echo "::warning::tremula: $barren selected function(s) produced no mutants — this run is evidence of nothing"
+    [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
+```
 
 > [!WARNING]
 > **モデルへの依頼には費用がかかり、指定したファイルがそのプロバイダーに

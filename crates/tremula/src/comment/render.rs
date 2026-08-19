@@ -28,6 +28,14 @@ const QUOTED_SOURCE: usize = 48;
 /// The one thing a reader must not misunderstand about a survived mutant.
 const SURVIVED_NOTE: &str = "_SURVIVED = not killed by the existing suite; whether the program can reach the mutation is unverified._";
 
+/// What to do about a function this run produced nothing for.
+///
+/// The section above it names a fact and stops, and a reader who has just been told that a
+/// green result is evidence of nothing is owed the next move. The `generate` step said why
+/// for each function at the time; asking a model the same question twice is genuinely not the
+/// same question twice, so a rerun is the cheap thing to try before this is read as clean.
+const BARREN_NEXT: &str = "_The `generate` step's own console output says why for each of them, and a model asked again may well answer differently — so rerunning is the next thing to try before reading this as a clean result._";
+
 /// Everything a comment is written from.
 ///
 /// The manifest comes from the working tree and the rest from the run directory. Not from a
@@ -302,6 +310,7 @@ fn nothing_generated(selection: Option<&Selection>) -> Vec<String> {
     vec![
         "#### Functions this run says nothing about".to_owned(),
         listed.join("\n"),
+        BARREN_NEXT.to_owned(),
     ]
 }
 

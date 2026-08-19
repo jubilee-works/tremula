@@ -82,7 +82,12 @@ that section without touching the rest.
 4. **The changed lines no test reaches** — per file, as line ranges.
 5. **The functions this run says nothing about** — the ones every proposal for
    which was refused, and the ones nothing was proposed for. Without this, an
-   empty manifest and a clean suite look the same.
+   empty manifest and a clean suite look the same. It closes with the next move,
+   because a reader who has just been told the result is evidence of nothing is
+   owed one: the `generate` step's own output says why function by function, and a
+   model asked the same question again may answer differently, so rerunning is the
+   cheap thing to try. A workflow can annotate this too — see
+   [Generation](generation.md).
 6. **The degraded warning**, when the selection ran without coverage.
 7. **The evidence link**, when `--evidence-url` gave one. Conditional on purpose:
    an artifact upload that failed its storage quota costs the comment a line

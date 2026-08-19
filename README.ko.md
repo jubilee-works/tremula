@@ -82,7 +82,9 @@ uv run tremula bundle
 
 함수를 직접 지목하는 대신, 비교할 리비전을 알려주면 `generate`가 대상을 스스로
 정합니다. 테스트 실행의 커버리지까지 주면, 바뀐 라인 중 테스트가 실제로 지나가는
-곳만 변이시킵니다:
+곳이 **어떤 함수를** 물어볼지를 정합니다. 변이 자체는 선정된 함수 안의 어디든
+제안될 수 있고 — 값어치 있는 제안은 대개 그쪽에 있습니다 — 테스트가 지나가지 않는
+라인을 바꾸는 변이는 기록되기 직전에 거부됩니다:
 
 ```sh
 uv run coverage lcov -o lcov.info
@@ -121,6 +123,19 @@ manifest에 대해 리포트만 쓰고 끝내므로, CI 잡은 분기 없이 명
 디렉토리를 읽어 풀 리퀘스트 코멘트 본문을 출력하며, `--github-pr <N>`을 주면
 직접 게시합니다 — 스레드에 쌓는 대신 자신이 이전에 남긴 코멘트를 교체합니다.
 자세한 내용은 [Comments](docs/01-architecture/comments.md)를 보세요.
+
+뮤턴트를 하나도 만들지 못한 채 초록불로 끝난 실행이야말로 어노테이션을 달 값이
+있습니다 — 종료 코드만으로는 "아무 문제도 못 찾은 실행"과 구분되지 않기 때문입니다.
+코어는 이 지점에서 플랫폼 중립을 지키고, GitHub 워크플로우라면 `generate`가 항상
+남기는 manifest를 읽어 한 스텝으로 드러낼 수 있습니다:
+
+```yaml
+- name: Warn when a generation produced no evidence
+  run: |
+    barren=$(jq '[.selection.functions[] | select(.generation.recorded == 0)] | length' tremula-manifest.json)
+    [ "$barren" = 0 ] || echo "::warning::tremula: $barren selected function(s) produced no mutants — this run is evidence of nothing"
+    [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
+```
 
 > [!WARNING]
 > **모델 호출은 비용이 들고 지정한 파일이 해당 제공자에게 전송됩니다.**
