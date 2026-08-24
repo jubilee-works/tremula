@@ -1,0 +1,99 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  wheels:
+    name: wheels (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+          - os: macos-14
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          args: --release --locked --out dist
+          manylinux: auto
+      - uses: PyO3/maturin-action@v1
+        if: matrix.os == 'macos-14'
+        with:
+          args: --release --locked --out dist
+      - uses: astral-sh/setup-uv@v4
+        if: matrix.os == 'ubuntu-latest'
+      - name: Build tremula-python wheel
+        if: matrix.os == 'ubuntu-latest'
+        run: uv build --wheel --out-dir dist packs/python
+      - name: Smoke test both wheels
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python3 -m venv .venv-smoke
+          .venv-smoke/bin/pip install --no-index --find-links dist tremula tremula-python
+          .venv-smoke/bin/tremula --version
+          .venv-smoke/bin/pip show tremula | grep -i '^Requires:.*tremula-python'
+      - name: Smoke test tremula wheel
+        if: matrix.os == 'macos-14'
+        run: |
+          python3 -m venv .venv-smoke
+          .venv-smoke/bin/pip install --no-index --find-links dist tremula --no-deps
+          .venv-smoke/bin/tremula --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.arch }}
+          path: dist/*.whl
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: wheels
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+  release-assets:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: wheels
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+      - name: Extract release binaries and checksums
+        run: |
+          mkdir release-assets
+          for wheel in dist/tremula-*.whl; do
+            case "$wheel" in
+              *manylinux*|*linux*) platform=linux-x86_64 ;;
+              *macosx*) platform=macos-arm64 ;;
+              *) echo "Unknown tremula wheel platform: $wheel" >&2; exit 1 ;;
+            esac
+            binary="release-assets/tremula-${platform}"
+            unzip -p "$wheel" '*/scripts/tremula' > "$binary"
+            chmod +x "$binary"
+            sha256sum "$binary" > "${binary}.sha256"
+          done
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
