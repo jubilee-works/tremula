@@ -36,14 +36,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           python3 -m venv .venv-smoke
-          .venv-smoke/bin/pip install --no-index --find-links dist tremula tremula-python
+          .venv-smoke/bin/pip install dist/tremula-*.whl dist/tremula_python-*.whl
           .venv-smoke/bin/tremula --version
           .venv-smoke/bin/pip show tremula | grep -i '^Requires:.*tremula-python'
       - name: Smoke test tremula wheel
         if: matrix.os == 'macos-14'
         run: |
           python3 -m venv .venv-smoke
-          .venv-smoke/bin/pip install --no-index --find-links dist tremula --no-deps
+          .venv-smoke/bin/pip install --no-deps dist/tremula-*.whl
           .venv-smoke/bin/tremula --version
       - uses: actions/upload-artifact@v4
         with:
