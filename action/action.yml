@@ -1,0 +1,92 @@
+name: Tremula
+description: Generate, run, and report mutation evidence for a pull request.
+inputs:
+  version:
+    description: tremula version to install; its language pack is installed as a wheel dependency.
+    required: true
+  model:
+    description: Model to use for generation and survivor triage.
+    required: true
+  diff-base:
+    description: Git revision to compare against when selecting changed functions.
+    default: origin/${{ github.base_ref }}
+  coverage:
+    description: Optional path to an LCOV coverage report.
+    required: false
+  max-functions:
+    description: Optional maximum number of changed functions to select.
+    required: false
+  github-token:
+    description: Token used to post the pull request comment.
+    default: ${{ github.token }}
+runs:
+  using: composite
+  steps:
+    - name: Install tremula
+      shell: bash
+      run: pip install "tremula==${{ inputs.version }}"
+
+    - name: Generate mutations
+      shell: bash
+      env:
+        DIFF_BASE: ${{ inputs.diff-base }}
+        MODEL: ${{ inputs.model }}
+        COVERAGE: ${{ inputs.coverage }}
+        MAX_FUNCTIONS: ${{ inputs.max-functions }}
+      run: |
+        args=(generate --diff-base "$DIFF_BASE" --model "$MODEL")
+        [ -z "$COVERAGE" ] || args+=(--coverage "$COVERAGE")
+        [ -z "$MAX_FUNCTIONS" ] || args+=(--max-functions "$MAX_FUNCTIONS")
+        tremula "${args[@]}"
+
+    - name: Run mutations
+      id: run
+      shell: bash
+      run: |
+        set +e
+        tremula run --manifest tremula-manifest.json
+        status=$?
+        set -e
+        if [ "$status" -ge 2 ]; then
+          exit "$status"
+        fi
+        if [ "$status" -eq 1 ]; then
+          echo "survivors=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "survivors=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Triage survivors and bundle evidence
+      if: steps.run.outputs.survivors == 'true'
+      shell: bash
+      env:
+        MODEL: ${{ inputs.model }}
+      run: |
+        tremula triage --model "$MODEL"
+        tremula bundle
+
+    - name: Upload mutation evidence
+      if: steps.run.outputs.survivors == 'true'
+      uses: actions/upload-artifact@v4
+      continue-on-error: true
+      with:
+        name: mutation-evidence-pr${{ github.event.pull_request.number }}
+        path: tremula-bundle-*/
+        retention-days: 14
+        overwrite: true
+        if-no-files-found: ignore
+
+    - name: Comment on pull request
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: tremula comment --github-pr "${{ github.event.pull_request.number }}"
+
+    - name: Warn when a generation produced no evidence
+      shell: bash
+      run: |
+        barren=$(jq '[.selection.functions[] | select(.generation.recorded == 0)] | length' tremula-manifest.json)
+        [ "$barren" = 0 ] || echo "::warning::tremula: $barren selected function(s) produced no mutants — this run is evidence of nothing"
+        [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
