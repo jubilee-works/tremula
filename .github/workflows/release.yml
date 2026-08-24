@@ -52,7 +52,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && vars.PYPI_PUBLISH_ENABLED == 'true'
     needs: wheels
     runs-on: ubuntu-latest
     environment: pypi

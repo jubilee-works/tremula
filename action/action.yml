@@ -87,6 +87,24 @@ runs:
     - name: Warn when a generation produced no evidence
       shell: bash
       run: |
-        barren=$(jq '[.selection.functions[] | select(.generation.recorded == 0)] | length' tremula-manifest.json)
-        [ "$barren" = 0 ] || echo "::warning::tremula: $barren selected function(s) produced no mutants — this run is evidence of nothing"
-        [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
+        python3 - <<'PY'
+        import json
+        from pathlib import Path
+
+        manifest = json.loads(Path("tremula-manifest.json").read_text())
+        selection = manifest["selection"]
+        barren = sum(
+            function["generation"]["recorded"] == 0
+            for function in selection["functions"]
+        )
+        if barren:
+            print(
+                f"::warning::tremula: {barren} selected function(s) produced no "
+                "mutants — this run is evidence of nothing"
+            )
+        if selection["coverage"] is None:
+            print(
+                "::warning::tremula: selected without coverage — a mutant that "
+                "survived may never be run at all"
+            )
+        PY
