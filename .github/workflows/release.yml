@@ -52,7 +52,14 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/') && vars.PYPI_PUBLISH_ENABLED == 'true'
+    # Publishing to PyPI is switched off in this file, on purpose. tremula is not
+    # approved for public release yet, so nothing here may run - not on a tag, not
+    # with the repository variable set, not with an approved environment.
+    #
+    # The `false &&` below is that switch. To publish, in this order: delete
+    # `false && ` from the line under this comment, create the `pypi` environment
+    # with a required reviewer, then set PYPI_PUBLISH_ENABLED=true.
+    if: false && startsWith(github.ref, 'refs/tags/') && vars.PYPI_PUBLISH_ENABLED == 'true'
     needs: wheels
     runs-on: ubuntu-latest
     environment: pypi
