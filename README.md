@@ -49,6 +49,13 @@ uv run tremula --version
 This keeps the CLI and language pack in the same project environment as the
 test suite.
 
+A run drives the pack through the project's own Python. Pass `--python <path>`
+to name one; otherwise tremula uses the active virtual environment, then the
+project's `.venv`. The pack must be installed in the interpreter tremula is
+pointed at — packages installed with `pip install --user` are not visible to
+it — and the suite runs with pytest, so pytest needs to be in that environment
+too.
+
 ## Quickstart
 
 A run needs a manifest that says what to mutate. Write one by hand, or ask a
