@@ -109,22 +109,38 @@ fn what_next(score: Score) -> Option<String> {
 /// can. A function whose round stopped early gets a second line saying so: the
 /// manifest is written anyway, and a reader who saw only the exit code would not
 /// know that what it holds is part of what was asked for.
+///
+/// A generation that chose its own targets says what it chose out of what, and what it
+/// left aside, because every one of those is something the reader did not ask for and
+/// cannot see. The two warnings under that are the ones a green exit code would
+/// otherwise hide: a selection made with no coverage, and a selection every proposal of
+/// which was refused.
 #[must_use]
 pub fn render_generation(generated: &Generated) -> String {
     let mut lines = vec![
         format!(
             "tremula generate · {} · {} function(s) · model: {}",
-            generated.file,
+            what_about(generated),
             generated.functions.len(),
             generated.model
         ),
         String::new(),
     ];
+    if let Some(aside) = &generated.aside {
+        lines.push(format!(
+            "selected {} of {} functions · {} capped · {} test file(s) excluded",
+            aside.selected,
+            aside.selected + aside.capped,
+            aside.capped,
+            aside.tests_excluded
+        ));
+        lines.push(String::new());
+    }
     for outcome in &generated.functions {
         let gathered = &outcome.gathered;
         let mut line = format!(
             "  {}: {} proposed · {} recorded",
-            outcome.function,
+            named(generated, outcome),
             gathered.proposed,
             gathered.mutants.len()
         );
@@ -144,7 +160,10 @@ pub fn render_generation(generated: &Generated) -> String {
         }
         lines.push(line);
         if let Some(failure) = &gathered.failure {
-            lines.push(format!("  {}: stopped — {failure}", outcome.function));
+            lines.push(format!(
+                "  {}: stopped — {failure}",
+                named(generated, outcome)
+            ));
         }
     }
     lines.push(String::new());
@@ -156,6 +175,7 @@ pub fn render_generation(generated: &Generated) -> String {
         ),
         None => "wrote nothing: no proposal survived the checks".to_owned(),
     });
+    lines.extend(what_a_selection_has_to_admit(generated));
     lines.push(format!(
         "tokens: {} prompt · {} completion · {} total",
         generated.tokens.prompt, generated.tokens.completion, generated.tokens.total
@@ -166,6 +186,71 @@ pub fn render_generation(generated: &Generated) -> String {
         generation_exit_reason(generated)
     ));
     lines.join("\n")
+}
+
+/// What a generation was about, in the header: the file when there is one, and how many
+/// there were when a selection found more than that.
+fn what_about(generated: &Generated) -> String {
+    match generated.files.as_slice() {
+        [] => "nothing to mutate".to_owned(),
+        [only] => only.clone(),
+        many => format!("{} files", many.len()),
+    }
+}
+
+/// One function, named so that a reader of a multi-file generation can tell two functions
+/// of the same name apart. Unqualified when there is only one file, because then the file
+/// is in the header and repeating it on every line says nothing.
+fn named(generated: &Generated, outcome: &crate::generate::command::FunctionOutcome) -> String {
+    if generated.files.len() <= 1 {
+        return outcome.function.clone();
+    }
+    format!("{}:{}", outcome.file, outcome.function)
+}
+
+/// The things a selection has to say out loud, because its exit code will not.
+///
+/// A coverage document whose files are somebody else's tree measures nothing this could
+/// select on, and a selection reading one looks exactly like a selection of a change that
+/// touched nothing — so the entries left out are counted and said. A selection made without
+/// coverage cannot tell a mutant the suite missed from one the suite never ran, and every
+/// survivor it produces carries that ambiguity. A selection that proposed things and
+/// recorded none of them produced no evidence at all, and a reader who saw only the green
+/// exit code would take it for a run that found nothing wrong.
+fn what_a_selection_has_to_admit(generated: &Generated) -> Vec<String> {
+    let Some(aside) = &generated.aside else {
+        return Vec::new();
+    };
+    let mut said = Vec::new();
+    if aside.coverage_outside > 0 {
+        said.push(format!(
+            "note: {} coverage entr{} outside the project and were ignored — check that the document was written where the project is",
+            aside.coverage_outside,
+            if aside.coverage_outside == 1 {
+                "y was"
+            } else {
+                "ies were"
+            }
+        ));
+    }
+    if aside.degraded {
+        said.push(
+            "warning: selected without coverage, so a mutant that survives may have survived because no test runs it — pass `--coverage` with an LCOV document of the project's own test run"
+                .to_owned(),
+        );
+    }
+    let proposed: usize = generated
+        .functions
+        .iter()
+        .map(|outcome| outcome.gathered.proposed)
+        .sum();
+    if generated.recorded == 0 && proposed > 0 {
+        said.push(format!(
+            "warning: {} function(s) were asked about and nothing came of any of them — this run is evidence of nothing, and a green result here does not mean the suite caught anything",
+            generated.functions.len()
+        ));
+    }
+    said
 }
 
 /// Render what a triage made of a run's survivors.
@@ -290,6 +375,15 @@ fn generation_exit_reason(generated: &Generated) -> String {
         .filter(|outcome| outcome.gathered.failure.is_some())
         .map(|outcome| outcome.function.as_str())
         .collect();
+    if generated.selection.is_some() {
+        if exit_code(generated) != 0 {
+            return "no function reached the model provider at all".to_owned();
+        }
+        if generated.recorded == 0 {
+            return "nothing to run".to_owned();
+        }
+        return format!("{} mutant(s) to run", generated.recorded);
+    }
     if !stopped.is_empty() {
         return format!("partial output: {} did not finish", stopped.join(", "));
     }

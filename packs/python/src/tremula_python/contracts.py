@@ -53,6 +53,61 @@ class Mutant(_Model):
     provenance: dict[str, Any] = Field(default_factory=dict)
 
 
+class LineRange(_Model):
+    """A stretch of lines, 1-indexed and inclusive at both ends."""
+
+    start_line: int = Field(ge=0)
+    end_line: int = Field(ge=0)
+
+
+class Generation(_Model):
+    """What one function's generation produced."""
+
+    proposed: int = Field(ge=0)
+    recorded: int = Field(ge=0)
+
+
+class SelectedFunction(_Model):
+    """One function a generation chose to ask about, and why.
+
+    `span` is the authority on which function was chosen; `lines` is the same
+    extent rendered for a person to read.
+    """
+
+    file: str
+    function: str
+    span: Span
+    lines: LineRange
+    candidate_lines: int = Field(ge=0)
+    inferred_tests: list[str] = Field(default_factory=list[str])
+    generation: Generation
+
+
+class CoverageGap(_Model):
+    """The changed lines of one file that no test reached."""
+
+    file: str
+    ranges: list[LineRange]
+
+
+class Selection(_Model):
+    """Why a manifest's targets were chosen, when the generator chose them itself.
+
+    The pack never reads this; it is mirrored so that the two sides of the
+    contract stay one contract, and so that a document carrying it survives being
+    read and written here unchanged.
+    """
+
+    diff_base: str
+    merge_base: str | None = None
+    coverage: str | None = None
+    functions: list[SelectedFunction]
+    skipped_over_limit: list[SelectedFunction]
+    coverage_gaps: list[CoverageGap]
+    files_not_in_coverage: list[str]
+    lines_outside_functions: int = Field(ge=0)
+
+
 class Manifest(_Model):
     """A set of mutants to apply to one project revision."""
 
@@ -60,6 +115,7 @@ class Manifest(_Model):
     language: Language
     base: Base
     mutants: list[Mutant]
+    selection: Selection | None = None
 
 
 class ExitClass(str, Enum):

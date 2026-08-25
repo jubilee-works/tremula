@@ -44,14 +44,18 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+pub mod asking;
 pub mod choose;
 pub mod command;
 pub mod enrich;
 pub mod failures;
 pub mod judge;
 pub mod openai;
+pub mod plan;
 pub mod prompt;
+pub mod publish;
 pub mod round;
+pub mod selection;
 
 /// A source of mutants for one function at a time.
 pub trait MutantGenerator {

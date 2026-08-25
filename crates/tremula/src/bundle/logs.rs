@@ -36,7 +36,10 @@ use std::{
 use sha2::{Digest, Sha256};
 use tremula_contracts::bundle::{Attached, Attachment};
 
-use crate::bundle::{collect::Evidence, failures::BundleFailure, write};
+use crate::{
+    bundle::{collect::Evidence, failures::BundleFailure, write},
+    paths::sibling_spelling,
+};
 
 /// Where the logs are, both in a run directory and in a bundle.
 pub const LOGS: &str = "logs";
@@ -61,13 +64,6 @@ const RUN: &[u8] = b"<run>";
 const PROJECT: &[u8] = b"<project>";
 const TEMPORARY: &[u8] = b"<tmp>";
 const HOME: &[u8] = b"<home>";
-
-/// Where the directories a platform reaches through a link of its own actually live.
-const PRIVATE: &str = "/private";
-
-/// The directories that are links into [`PRIVATE`] here. One directory, two absolute
-/// spellings, and a process prints whichever of them it was handed.
-const LINKED: [&str; 2] = ["/tmp", "/var"];
 
 /// The directories of the machine a run happened on, ready to be taken out of a log.
 ///
@@ -133,33 +129,6 @@ impl Machine {
         }
         self.replacements.push((needle, replacement));
     }
-}
-
-/// The other absolute spelling of one directory, when this platform has two.
-///
-/// This is what makes the default invocation safe. `--project .` is relative, so the only
-/// absolute form of the project there is to learn from is the resolved one — and a suite
-/// handed the other spelling would otherwise have it published. Deriving the sibling from
-/// whichever form is in hand covers both directions, and both map to one placeholder.
-fn sibling_spelling(trimmed: &str) -> Option<String> {
-    for linked in LINKED {
-        if let Some(rest) = trimmed.strip_prefix(linked)
-            && a_component_ends_there(rest)
-        {
-            return Some(format!("{PRIVATE}{trimmed}"));
-        }
-        if let Some(rest) = trimmed.strip_prefix(&format!("{PRIVATE}{linked}"))
-            && a_component_ends_there(rest)
-        {
-            return Some(format!("{linked}{rest}"));
-        }
-    }
-    None
-}
-
-/// Whether a prefix ended where a component of the path ends, rather than inside a name.
-fn a_component_ends_there(rest: &str) -> bool {
-    rest.is_empty() || rest.starts_with('/')
 }
 
 /// Somebody's home directory, when the environment says which.

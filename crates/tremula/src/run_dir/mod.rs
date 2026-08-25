@@ -20,6 +20,7 @@ use std::{
     process,
 };
 
+use sha2::{Digest, Sha256};
 use time::{OffsetDateTime, UtcOffset, macros::format_description};
 
 pub use lock::{Lock, LockError};
@@ -83,6 +84,40 @@ impl RunId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// The manifest fingerprint a run's name carries, when the name is one this tool derived.
+///
+/// This is the only link there is between a run and a manifest that is not inside the run's
+/// own directory: a manifest holding the same mutants under the same identifiers names no run
+/// of its own, so nothing but the name says whether the two belong together. A reader that
+/// paired the wrong two would quote spans, originals and replacements that the verdicts were
+/// never reached about.
+///
+/// A name that carries no fingerprint — a run copied to a name of somebody's own — answers
+/// nothing rather than answering wrongly, and a caller with nothing to compare against has to
+/// decide for itself what that means.
+#[must_use]
+pub fn fingerprint(run_id: &str) -> Option<&str> {
+    let mut segments = run_id.split('-');
+    segments.next()?;
+    let fingerprint = segments.next()?;
+    (fingerprint.len() == SHA_CHARS && hexadecimal(fingerprint)).then_some(fingerprint)
+}
+
+/// The fingerprint a run of these manifest bytes would have been named after.
+#[must_use]
+pub fn fingerprint_of(manifest: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(manifest))
+        .chars()
+        .take(SHA_CHARS)
+        .collect()
+}
+
+/// Whether every character is one a lowercase hexadecimal digest is spelled with.
+fn hexadecimal(said: &str) -> bool {
+    said.bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// A directory reserved for one run.

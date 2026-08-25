@@ -5,12 +5,14 @@
 pub mod artifacts;
 pub mod bundle;
 pub mod child;
+pub mod comment;
 pub mod console;
 pub mod decision;
 pub mod dismiss;
 pub mod generate;
 pub mod orchestrate;
 pub mod pack;
+mod paths;
 pub mod provenance;
 pub mod python_env;
 pub mod report;

@@ -35,6 +35,7 @@ and bundle exposure in more detail.
 | Survivor classification and dismissals | [Triage and dismissals](01-architecture/triage-and-dismissals.md) |
 | The forced order of a run and its directory | [Run lifecycle](01-architecture/run-lifecycle.md) |
 | Evidence bundles and their guarantees | [Bundles](01-architecture/bundles.md) |
+| Reporting a run on a pull request | [Comments](01-architecture/comments.md) |
 | Python pack and Cosmic Ray | [Python backend](03-python-backend/cosmic-ray.md) |
 
 Contract type changes start in `crates/tremula-contracts`; regenerate the

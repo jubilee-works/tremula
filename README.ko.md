@@ -78,9 +78,75 @@ uv run tremula triage --model gpt-5.2-2025-12-11
 uv run tremula bundle
 ```
 
+## 풀 리퀘스트가 바꾼 것만 변이시키기
+
+함수를 직접 지목하는 대신, 비교할 리비전을 알려주면 `generate`가 대상을 스스로
+정합니다. 테스트 실행의 커버리지까지 주면, 바뀐 라인 중 테스트가 실제로 지나가는
+곳이 **어떤 함수를** 물어볼지를 정합니다. 변이 자체는 선정된 함수 안의 어디든
+제안될 수 있고 — 값어치 있는 제안은 대개 그쪽에 있습니다 — 테스트가 지나가지 않는
+라인을 바꾸는 변이는 기록되기 직전에 거부됩니다:
+
+```sh
+uv run coverage lcov -o lcov.info
+uv run tremula generate --diff-base origin/main --coverage lcov.info \
+  --model gpt-5.2-2025-12-11
+uv run tremula run --manifest tremula-manifest.json
+uv run tremula comment
+```
+
+```text
+tremula generate · ranges.py · 2 function(s) · model: gpt-5.2-2025-12-11
+
+selected 2 of 2 functions · 0 capped · 1 test file(s) excluded
+
+  overlaps: 4 proposed · 4 recorded
+  merge: 4 proposed · 3 recorded · refused: original_not_found ×1
+
+wrote 7 mutant(s) to ./tremula-manifest.json
+tokens: 1364 prompt · 872 completion · 2236 total
+exit 0 (7 mutant(s) to run)
+```
+
+비교의 기준은 브랜치가 베이스에서 갈라진 지점이므로, 베이스가 그 뒤에 나아갔더라도
+베이스 자신의 커밋이 이 변경에 섞이지 않습니다. `--max-functions` 기본값은 5이고,
+상한에 걸려 제외된 함수는 조용히 버려지지 않고 기록됩니다. `--coverage` 없이 돌리면
+바뀐 함수 전부가 대상이 되며, 출력이 그 사실을 밝힙니다 — 살아남은 뮤턴트가
+"테스트가 지나가지 않아서" 살아남았을 수 있기 때문입니다.
+
+**변이시킬 것이 하나도 없는 변경은 실패가 아니라 성공입니다.** `0`으로 끝나고
+manifest도 그대로 기록합니다. 바뀐 라인 중 어느 테스트도 지나가지 않는 곳이
+어디인지가, 그런 실행이 내놓는 가장 값진 정보이기 때문입니다. `run`은 그런
+manifest에 대해 리포트만 쓰고 끝내므로, CI 잡은 분기 없이 명령을 늘어놓으면 됩니다.
+
+각 함수가 왜 선정되었는지는 manifest의 `selection`에 기록되고, 거기서 실행
+디렉토리와 증거 번들까지 그대로 실려 갑니다. `tremula comment`는 manifest와 실행
+디렉토리를 읽어 풀 리퀘스트 코멘트 본문을 출력하며, `--github-pr <N>`을 주면
+직접 게시합니다 — 스레드에 쌓는 대신 자신이 이전에 남긴 코멘트를 교체합니다.
+자세한 내용은 [Comments](docs/01-architecture/comments.md)를 보세요.
+
+뮤턴트를 하나도 만들지 못한 채 초록불로 끝난 실행이야말로 어노테이션을 달 값이
+있습니다 — 종료 코드만으로는 "아무 문제도 못 찾은 실행"과 구분되지 않기 때문입니다.
+코어는 이 지점에서 플랫폼 중립을 지키고, GitHub 워크플로우라면 `generate`가 항상
+남기는 manifest를 읽어 한 스텝으로 드러낼 수 있습니다:
+
+```yaml
+- name: Warn when a generation produced no evidence
+  run: |
+    barren=$(jq '[.selection.functions[] | select(.generation.recorded == 0)] | length' tremula-manifest.json)
+    [ "$barren" = 0 ] || echo "::warning::tremula: $barren selected function(s) produced no mutants — this run is evidence of nothing"
+    [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
+```
+
 > [!WARNING]
 > **모델 호출은 비용이 들고 지정한 파일이 해당 제공자에게 전송됩니다.**
-> 네트워크 호출을 하는 명령은 `generate`와 `triage`뿐입니다.
+> 네트워크 호출을 하는 명령은 `generate`, `triage`, 그리고 `--github-pr`로 게시를
+> 요청받은 `tremula comment`입니다.
+>
+> **선정 모드는 스스로 찾은 테스트 파일도 전송합니다.** `generate --diff-base`는
+> 대상마다 단 하나의 경로만 봅니다 — 대상 파일 위쪽에서 패키지를 선언하는 가장
+> 가까운 디렉토리의 `tests/test_<stem>.py` — 거기서 찾은 파일은 함수와 함께 읽혀
+> 제공자에게 전송됩니다. 무엇을 찾았는지는 manifest의 `selection.functions[].inferred_tests`에
+> 기록되므로, 무엇이 전송되었는지는 항상 기록으로 남습니다.
 >
 > **manifest는 곧 실행할 코드입니다.** 모든 `replacement`는 테스트 스위트의
 > 일부로 실행되므로, 신뢰하는 manifest만 실행하세요.
@@ -100,6 +166,7 @@ uv run tremula bundle
 | 복구까지 포함해 첫 실행 완료하기 | [첫 뮤테이션 테스트 실행](docs/guides/first-run.md) |
 | triage 결과 이해하고 survivor dismiss하기 | [survivor 검토와 dismiss](docs/guides/survivor-review.md) |
 | 동료나 코딩 에이전트에게 실행 결과 패키징하기 | [증거 번들 공유](docs/guides/bundle-sharing.md) |
+| 풀 리퀘스트에 실행 결과 보고하기 | [Comments](docs/01-architecture/comments.md) |
 | 아키텍처, 계약, 결정 기록 | [문서 인덱스](docs/README.md) |
 
 생성된 JSON Schema와 공유 예제는 [`contracts/`](contracts/README.md)에

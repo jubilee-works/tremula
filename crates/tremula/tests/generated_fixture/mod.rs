@@ -144,8 +144,11 @@ impl Fixture {
     /// What a person would type to generate for `overlaps` in this project.
     pub fn asking_about(&self, function: &str) -> GenerateArgs {
         GenerateArgs {
-            file: "ranges.py".to_owned(),
+            file: Some("ranges.py".to_owned()),
             functions: vec![function.to_owned()],
+            diff_base: None,
+            coverage: None,
+            max_functions: command::DEFAULT_MAX_FUNCTIONS,
             tests: vec!["test_ranges.py".to_owned()],
             model: MODEL.to_owned(),
             python: Some(interpreter()),

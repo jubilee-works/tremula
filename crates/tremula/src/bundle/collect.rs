@@ -43,7 +43,10 @@ use tremula_contracts::{
     triage::Triage,
 };
 
-use crate::bundle::failures::BundleFailure;
+use crate::{
+    bundle::failures::BundleFailure,
+    run_dir::{fingerprint, fingerprint_of},
+};
 
 /// The document a bundle's reader starts from.
 pub const REPORT: &str = "report.json";
@@ -68,11 +71,6 @@ pub const PATCHES: &str = "patches";
 
 /// How many characters a mutant identifier has.
 const ID_CHARS: usize = 64;
-
-/// How much of the manifest's hash a run's name carries. A run is named
-/// `<stamp>-<fingerprint>`, and one that found its own name taken gets a further suffix,
-/// so the fingerprint is the segment after the stamp either way.
-const FINGERPRINT_CHARS: usize = 6;
 
 /// One document, kept as bytes as well as as itself.
 ///
@@ -274,18 +272,12 @@ fn of_one_run(evidence: &Evidence, directory: &str) -> Result<(), BundleFailure>
 
 /// The manifest in the directory is the one the run's own name was derived from.
 ///
-/// A run is named `<stamp>-<fingerprint>`, where the fingerprint is the first
-/// [`FINGERPRINT_CHARS`] hexadecimal digits of the SHA-256 of the manifest it was given,
-/// and the pack keeps that manifest byte for byte. So the two can be compared — and this is
-/// the only link there is between a run and the manifest beside it. A manifest swapped for
-/// another run's is the substitution nothing else here would notice: it can hold the same
-/// mutants under the same identifiers and name no run of its own at all, while the spans,
-/// the originals and the replacements a reader of the bundle would go on to read are not
-/// the ones the verdicts were reached about.
-///
-/// A directory whose name carries no fingerprint — a run copied to a name of somebody's
-/// own — has nothing to compare against. Refusing that would be a rule about names rather
-/// than about evidence, so it passes.
+/// The comparison is the run-id rule itself, which [`fingerprint`] keeps: the pack keeps the
+/// manifest it was given byte for byte, so hashing what is there and reading the name are two
+/// ways of asking the same question. A manifest swapped for another run's is the substitution
+/// nothing else here would notice, and a directory whose name carries no fingerprint has
+/// nothing to compare against — refusing that would be a rule about names rather than about
+/// evidence, so it passes.
 fn from_the_manifest_the_run_ran(
     evidence: &Evidence,
     directory: &str,
@@ -293,10 +285,7 @@ fn from_the_manifest_the_run_ran(
     let Some(expected) = fingerprint(&evidence.run_id) else {
         return Ok(());
     };
-    let found: String = format!("{:x}", Sha256::digest(&evidence.manifest.bytes))
-        .chars()
-        .take(FINGERPRINT_CHARS)
-        .collect();
+    let found = fingerprint_of(&evidence.manifest.bytes);
     if found != expected {
         return Err(BundleFailure::ManifestOfAnotherRun {
             directory: directory.to_owned(),
@@ -306,14 +295,6 @@ fn from_the_manifest_the_run_ran(
         });
     }
     Ok(())
-}
-
-/// The manifest fingerprint a run's name carries, when the name is one this tool derived.
-fn fingerprint(run_id: &str) -> Option<&str> {
-    let mut segments = run_id.split('-');
-    segments.next()?;
-    let fingerprint = segments.next()?;
-    (fingerprint.len() == FINGERPRINT_CHARS && hexadecimal(fingerprint)).then_some(fingerprint)
 }
 
 /// The manifest and the report account for exactly the same mutants, and every
