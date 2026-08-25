@@ -5,6 +5,16 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+# A job that needs to write a release or mint an OIDC token asks for it itself.
+permissions:
+  contents: read
+
+# Two runs of the same ref must never race to publish the same version, and the
+# second one must not be thrown away either.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   wheels:
     name: wheels (${{ matrix.arch }})

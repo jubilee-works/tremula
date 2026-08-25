@@ -5,6 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+# A check reads the repository and writes nothing back to it.
+permissions:
+  contents: read
+
+# A newer push to the same ref makes the runs still in flight worthless, and
+# they bill the same as a useful one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rust:
     runs-on: ubuntu-latest
