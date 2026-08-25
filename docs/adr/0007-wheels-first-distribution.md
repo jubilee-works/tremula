@@ -8,7 +8,10 @@ Accepted
 
 A release carries the wheels themselves alongside the extracted binaries and
 checksums, so that an internal consumer can install tremula from a private
-release before anything is on PyPI.
+release before anything is on PyPI. That channel is a stopgap, not a second
+distribution tier: PyPI remains the canonical install path, and installing
+from release-attached wheels is expected to end once the first publication
+lands.
 
 ## Context
 
