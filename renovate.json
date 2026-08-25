@@ -1,0 +1,12 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "github>jubilee-works/timetree-github-actions:renovate-supply-chain"
+  ],
+  "labels": ["renovate"],
+  "rebaseWhen": "never",
+  "timezone": "Asia/Tokyo",
+  "schedule": ["* 9-17 * * 1"],
+  "description": "Update dependencies every Monday 9am-5pm JST. The shared supply-chain preset pins GitHub Action references to digests and holds every update for 7 days."
+}
