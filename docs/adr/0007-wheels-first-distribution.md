@@ -4,6 +4,12 @@
 
 Accepted
 
+## Implementation note (2026-08-25)
+
+A release carries the wheels themselves alongside the extracted binaries and
+checksums, so that an internal consumer can install tremula from a private
+release before anything is on PyPI.
+
 ## Context
 
 [ADR-0002](0002-rust-core-with-language-packs.md) settled the shape of the
