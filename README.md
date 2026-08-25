@@ -26,11 +26,20 @@ which ones survive: evidence of the gaps your tests don't cover.
   patches, and logs into a hash-indexed directory a colleague or a coding
   agent can reproduce from.
 
-## Install from source
+## Install
+
+tremula's canonical distribution is a pair of wheels: `tremula` carries the
+CLI, and the Python language pack comes along as its dependency. Where the
+wheels are available from an index, the install is one command:
+
+```sh
+uv add --dev tremula
+# or with pip: pip install tremula
+```
 
 tremula supports Python 3.10 or newer through the Python language pack and
-Cosmic Ray. Neither package is on PyPI yet, so install both from a clone of
-this repository into the project you want to measure:
+Cosmic Ray. Where no index carries the wheels, install from a clone of this
+repository into the project you want to measure:
 
 ```sh
 uv add --dev --editable /path/to/tremula /path/to/tremula/packs/python
@@ -39,6 +48,13 @@ uv run tremula --version
 
 This keeps the CLI and language pack in the same project environment as the
 test suite.
+
+A run drives the pack through the project's own Python. Pass `--python <path>`
+to name one; otherwise tremula uses the active virtual environment, then the
+project's `.venv`. The pack must be installed in the interpreter tremula is
+pointed at — packages installed with `pip install --user` are not visible to
+it — and the suite runs with pytest, so pytest needs to be in that environment
+too.
 
 ## Quickstart
 
@@ -163,6 +179,24 @@ one step, reading the manifest `generate` always writes:
 Add `.tremula/` and `tremula-bundle-*` to the project's `.gitignore`. Runs are
 written inside the project, and committing them makes every later run see a
 modified working tree.
+
+## Language support
+
+Python is the only language pack today. It drives Cosmic Ray inside the target
+project's environment and translates the backend's vocabulary into neutral
+signals before anything else sees it
+([ADR-0001](docs/adr/0001-cosmic-ray-as-execution-backend.md)).
+
+Rust, over `cargo-mutants`, is the pack we intend to write next. It is the
+useful second case because its execution model differs from Cosmic Ray's — a
+compiled language, no in-process mutation database — which is the pressure the
+pack protocol was designed to survive
+([ADR-0002](docs/adr/0002-rust-core-with-language-packs.md)). None of it is
+implemented.
+
+Packs past those two are expected to come from outside this repository. The
+subprocess protocol and the four file contracts are the extension points; a new
+pack needs no change to the core.
 
 ## Where to go next
 

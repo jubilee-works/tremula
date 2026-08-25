@@ -27,11 +27,20 @@ tremula는 외부에서 정의된 뮤턴트를 테스트 스위트에 대해 실
   patch, 로그를 해시 인덱스가 붙은 디렉터리로 패키징해, 동료나 코딩 에이전트가
   재현할 수 있게 합니다.
 
-## 소스에서 설치
+## 설치
+
+tremula의 정식 배포 형태는 두 개의 wheel입니다. `tremula`가 CLI를 담고,
+Python 언어 팩은 그 의존성으로 함께 설치됩니다. wheel을 제공하는 인덱스가
+있는 환경에서는 설치가 명령 하나로 끝납니다:
+
+```sh
+uv add --dev tremula
+# pip라면: pip install tremula
+```
 
 tremula는 Python 언어 팩과 Cosmic Ray를 통해 Python 3.10 이상을 지원합니다.
-두 패키지 모두 아직 PyPI에 없으므로, 이 저장소를 클론해 측정하려는 프로젝트에
-함께 설치하세요:
+wheel을 제공하는 인덱스가 없는 환경에서는, 이 저장소를 클론해 측정하려는
+프로젝트에 설치하세요:
 
 ```sh
 uv add --dev --editable /path/to/tremula /path/to/tremula/packs/python
@@ -39,6 +48,12 @@ uv run tremula --version
 ```
 
 이렇게 하면 CLI와 언어 팩이 테스트 스위트와 같은 프로젝트 환경에 놓입니다.
+
+실행은 프로젝트의 Python으로 언어 팩을 구동합니다. `--python <경로>`로
+인터프리터를 지정할 수 있고, 지정하지 않으면 활성화된 가상환경, 그다음
+프로젝트의 `.venv`를 사용합니다. 팩은 tremula가 가리키는 인터프리터에
+설치돼 있어야 하며 — `pip install --user`로 설치된 패키지는 보이지 않습니다
+— 스위트는 pytest로 실행되므로 pytest도 같은 환경에 필요합니다.
 
 ## 빠른 시작
 
@@ -158,6 +173,22 @@ manifest에 대해 리포트만 쓰고 끝내므로, CI 잡은 분기 없이 명
 프로젝트의 `.gitignore`에 `.tremula/`와 `tremula-bundle-*`를 추가하세요. 실행
 결과는 프로젝트 안에 기록되며, 커밋하면 이후 모든 실행이 변경된 작업 트리를
 보게 됩니다.
+
+## 언어 지원
+
+현재 언어 팩은 Python 하나뿐이다. 대상 프로젝트의 환경 안에서 Cosmic Ray를
+구동하고, 백엔드의 어휘를 다른 어떤 계층도 보기 전에 중립 신호로 번역한다
+([ADR-0001](docs/adr/0001-cosmic-ray-as-execution-backend.md)).
+
+다음으로 만들려는 팩은 `cargo-mutants`를 쓰는 Rust다. 두 번째 사례로 쓸모가
+있는 이유는 실행 모델이 Cosmic Ray와 다르기 때문이다 — 컴파일 언어이고,
+프로세스 안에 변이 데이터베이스가 없다. 팩 프로토콜이 견디도록 설계된 압력이
+바로 이것이다
+([ADR-0002](docs/adr/0002-rust-core-with-language-packs.md)). 아직 아무것도
+구현되지 않았다.
+
+그 둘 이후의 팩은 이 저장소 밖에서 오는 것을 전제한다. 서브프로세스 프로토콜과
+네 개의 파일 계약이 확장 지점이며, 새 팩을 붙이는 데 코어 변경은 필요하지 않다.
 
 ## 다음으로 볼 것
 

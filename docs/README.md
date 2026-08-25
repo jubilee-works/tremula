@@ -60,6 +60,7 @@ as in [0001](adr/0001-cosmic-ray-as-execution-backend.md) and
 | [0004](adr/0004-own-llm-provider-adapter.md) | Write our own LLM provider adapter |
 | [0005](adr/0005-name-tremula.md) | The name tremula |
 | [0006](adr/0006-generation-takes-no-lock.md) | A generation takes no lock on the project |
+| [0007](adr/0007-wheels-first-distribution.md) | Wheels are the first distribution channel; PyPI first, Action second, Releases binaries as a by-product |
 
 ## Principles
 
