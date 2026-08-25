@@ -27,17 +27,17 @@ jobs:
           - os: macos-14
             arch: arm64
     steps:
-      - uses: actions/checkout@v4
-      - uses: PyO3/maturin-action@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         if: matrix.os == 'ubuntu-latest'
         with:
           args: --release --locked --out dist
           manylinux: auto
-      - uses: PyO3/maturin-action@v1
+      - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         if: matrix.os == 'macos-14'
         with:
           args: --release --locked --out dist
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
         if: matrix.os == 'ubuntu-latest'
       - name: Build tremula-python wheel
         if: matrix.os == 'ubuntu-latest'
@@ -55,7 +55,7 @@ jobs:
           python3 -m venv .venv-smoke
           .venv-smoke/bin/pip install --no-deps dist/tremula-*.whl
           .venv-smoke/bin/tremula --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: wheels-${{ matrix.arch }}
           path: dist/*.whl
@@ -76,12 +76,12 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           pattern: wheels-*
           merge-multiple: true
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist
 
@@ -92,7 +92,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
           pattern: wheels-*
@@ -111,7 +111,7 @@ jobs:
             chmod +x "$binary"
             sha256sum "$binary" > "${binary}.sha256"
           done
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
