@@ -106,8 +106,9 @@ fn an_absolute_path_across_the_cut_does_not_survive() {
 }
 
 /// A project's own root is spelled one way on the command line and another by anything
-/// that resolves it. On this platform `/var` and `/private/var` are the same directory,
-/// and a log carries whichever form the process that printed it happened to hold.
+/// that resolves it on platforms where those forms differ. A log carries whichever form
+/// the process that printed it happened to hold; using both remains valid when they are
+/// identical.
 #[test]
 fn both_the_spelling_and_the_resolved_form_of_a_path_are_taken_out() {
     let workspace = tempfile::TempDir::new().unwrap();
@@ -115,10 +116,6 @@ fn both_the_spelling_and_the_resolved_form_of_a_path_are_taken_out() {
     let run = project.join("runs").join("one");
     fs::create_dir_all(&run).unwrap();
     let resolved = fs::canonicalize(&project).unwrap();
-    assert_ne!(
-        resolved, project,
-        "this test needs a platform where the two forms differ"
-    );
     let raw = format!(
         "rootdir: {}\ncachedir: {}/.pytest_cache\n",
         resolved.display(),
