@@ -161,6 +161,12 @@ one step, reading the manifest `generate` always writes:
 > Only `generate` and `triage` make network calls — and `tremula comment` when it
 > is asked to post one with `--github-pr`.
 >
+> **Sending proprietary code to a provider is your decision.** Before you point
+> tremula at code your organization owns, check its policy and the provider's
+> data-use terms — retention, training on API input, and regional processing
+> differ by provider and plan. tremula sends only what the commands above
+> describe, to the provider your API key belongs to.
+>
 > **A selection sends the test files it found, too.** `generate --diff-base`
 > looks at one path per target — `tests/test_<stem>.py` under the nearest directory
 > above the file that declares a package — and the file it finds there, if any, is
