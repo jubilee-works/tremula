@@ -98,16 +98,11 @@ jobs:
           path: dist
           pattern: wheels-*
           merge-multiple: true
-      - name: Extract release binaries and checksums
+      - name: Extract standalone macOS binary and checksum
         run: |
           mkdir release-assets
-          for wheel in dist/tremula-*.whl; do
-            case "$wheel" in
-              *manylinux*|*linux*) platform=linux-x86_64 ;;
-              *macosx*) platform=macos-arm64 ;;
-              *) echo "Unknown tremula wheel platform: $wheel" >&2; exit 1 ;;
-            esac
-            binary="release-assets/tremula-${platform}"
+          for wheel in dist/tremula-*macosx*.whl; do
+            binary="release-assets/tremula-macos-arm64"
             unzip -p "$wheel" '*/scripts/tremula' > "$binary"
             chmod +x "$binary"
             sha256sum "$binary" > "${binary}.sha256"
