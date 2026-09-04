@@ -5,10 +5,27 @@ build-backend = "maturin"
 [project]
 name = "tremula"
 description = "Plant realistic bugs, see if your tests tremble."
+readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+authors = [{ name = "TimeTree, Inc." }]
+keywords = ["mutation-testing", "testing", "llm", "pytest"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Rust",
+  "Topic :: Software Development :: Testing",
+]
 dynamic = ["version"]
 dependencies = ["tremula-python==0.1.*"]
+
+[project.urls]
+Homepage = "https://github.com/jubilee-works/tremula"
+Documentation = "https://github.com/jubilee-works/tremula/blob/main/docs/README.md"
+Repository = "https://github.com/jubilee-works/tremula"
+Issues = "https://github.com/jubilee-works/tremula/issues"
+Changelog = "https://github.com/jubilee-works/tremula/releases"
 
 [tool.maturin]
 bindings = "bin"
