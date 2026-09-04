@@ -1,6 +1,6 @@
 # tremula
 
-[English](README.md) | **한국어** | [日本語](README.ja.md)
+[English](https://github.com/jubilee-works/tremula/blob/main/README.md) | **한국어** | [日本語](https://github.com/jubilee-works/tremula/blob/main/README.ja.md)
 
 **코드에 그럴듯한 버그를 심고 — 테스트가 흔들리는지 확인하세요.**
 
@@ -137,7 +137,7 @@ manifest에 대해 리포트만 쓰고 끝내므로, CI 잡은 분기 없이 명
 디렉토리와 증거 번들까지 그대로 실려 갑니다. `tremula comment`는 manifest와 실행
 디렉토리를 읽어 풀 리퀘스트 코멘트 본문을 출력하며, `--github-pr <N>`을 주면
 직접 게시합니다 — 스레드에 쌓는 대신 자신이 이전에 남긴 코멘트를 교체합니다.
-자세한 내용은 [Comments](docs/01-architecture/comments.md)를 보세요.
+자세한 내용은 [Comments](https://github.com/jubilee-works/tremula/blob/main/docs/01-architecture/comments.md)를 보세요.
 
 뮤턴트를 하나도 만들지 못한 채 초록불로 끝난 실행이야말로 어노테이션을 달 값이
 있습니다 — 종료 코드만으로는 "아무 문제도 못 찾은 실행"과 구분되지 않기 때문입니다.
@@ -152,7 +152,6 @@ manifest에 대해 리포트만 쓰고 끝내므로, CI 잡은 분기 없이 명
     [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
 ```
 
-> [!WARNING]
 > **모델 호출은 비용이 들고 지정한 파일이 해당 제공자에게 전송됩니다.**
 > 네트워크 호출을 하는 명령은 `generate`, `triage`, 그리고 `--github-pr`로 게시를
 > 요청받은 `tremula comment`입니다.
@@ -184,13 +183,13 @@ manifest에 대해 리포트만 쓰고 끝내므로, CI 잡은 분기 없이 명
 
 현재 언어 팩은 Python 하나뿐이다. 대상 프로젝트의 환경 안에서 Cosmic Ray를
 구동하고, 백엔드의 어휘를 다른 어떤 계층도 보기 전에 중립 신호로 번역한다
-([ADR-0001](docs/adr/0001-cosmic-ray-as-execution-backend.md)).
+([ADR-0001](https://github.com/jubilee-works/tremula/blob/main/docs/adr/0001-cosmic-ray-as-execution-backend.md)).
 
 다음으로 만들려는 팩은 `cargo-mutants`를 쓰는 Rust다. 두 번째 사례로 쓸모가
 있는 이유는 실행 모델이 Cosmic Ray와 다르기 때문이다 — 컴파일 언어이고,
 프로세스 안에 변이 데이터베이스가 없다. 팩 프로토콜이 견디도록 설계된 압력이
 바로 이것이다
-([ADR-0002](docs/adr/0002-rust-core-with-language-packs.md)). 아직 아무것도
+([ADR-0002](https://github.com/jubilee-works/tremula/blob/main/docs/adr/0002-rust-core-with-language-packs.md)). 아직 아무것도
 구현되지 않았다.
 
 그 둘 이후의 팩은 이 저장소 밖에서 오는 것을 전제한다. 서브프로세스 프로토콜과
@@ -200,13 +199,13 @@ manifest에 대해 리포트만 쓰고 끝내므로, CI 잡은 분기 없이 명
 
 | 작업 | 가이드 |
 | --- | --- |
-| 복구까지 포함해 첫 실행 완료하기 | [첫 뮤테이션 테스트 실행](docs/guides/first-run.md) |
-| triage 결과 이해하고 survivor dismiss하기 | [survivor 검토와 dismiss](docs/guides/survivor-review.md) |
-| 동료나 코딩 에이전트에게 실행 결과 패키징하기 | [증거 번들 공유](docs/guides/bundle-sharing.md) |
-| 풀 리퀘스트에 실행 결과 보고하기 | [Comments](docs/01-architecture/comments.md) |
-| 아키텍처, 계약, 결정 기록 | [문서 인덱스](docs/README.md) |
+| 복구까지 포함해 첫 실행 완료하기 | [첫 뮤테이션 테스트 실행](https://github.com/jubilee-works/tremula/blob/main/docs/guides/first-run.md) |
+| triage 결과 이해하고 survivor dismiss하기 | [survivor 검토와 dismiss](https://github.com/jubilee-works/tremula/blob/main/docs/guides/survivor-review.md) |
+| 동료나 코딩 에이전트에게 실행 결과 패키징하기 | [증거 번들 공유](https://github.com/jubilee-works/tremula/blob/main/docs/guides/bundle-sharing.md) |
+| 풀 리퀘스트에 실행 결과 보고하기 | [Comments](https://github.com/jubilee-works/tremula/blob/main/docs/01-architecture/comments.md) |
+| 아키텍처, 계약, 결정 기록 | [문서 인덱스](https://github.com/jubilee-works/tremula/blob/main/docs/README.md) |
 
-생성된 JSON Schema와 공유 예제는 [`contracts/`](contracts/README.md)에
+생성된 JSON Schema와 공유 예제는 [`contracts/`](https://github.com/jubilee-works/tremula/blob/main/contracts/README.md)에
 있습니다. 링크된 문서는 영어로 작성되어 있습니다.
 
 ## 개발
@@ -225,4 +224,6 @@ Rust 계약 타입을 변경했다면 `just contracts`를 실행하세요. `just
 
 ## 라이선스
 
-MIT
+MIT. [LICENSE](https://github.com/jubilee-works/tremula/blob/main/LICENSE)를 참고하세요.
+
+Developed by [TimeTree](https://timetreeapp.com).

@@ -1,6 +1,6 @@
 # tremula
 
-[English](README.md) | [한국어](README.ko.md) | **日本語**
+[English](https://github.com/jubilee-works/tremula/blob/main/README.md) | [한국어](https://github.com/jubilee-works/tremula/blob/main/README.ko.md) | **日本語**
 
 **コードに現実的なバグを植えて — テストが震えるか確かめましょう。**
 
@@ -143,7 +143,7 @@ manifestについてレポートだけを書いて終わるので、CIジョブ�
 manifestと実行ディレクトリを読んでプルリクエストのコメント本文を出力し、
 `--github-pr <N>`を渡すと投稿します — スレッドに積み増す代わりに、自分が
 以前残したコメントを置き換えます。詳しくは
-[Comments](docs/01-architecture/comments.md)を参照してください。
+[Comments](https://github.com/jubilee-works/tremula/blob/main/docs/01-architecture/comments.md)を参照してください。
 
 ミュータントを1つも作れずに緑で終わった実行こそ、注記を付ける価値があります —
 終了コードだけでは「何も問題が見つからなかった実行」と区別できないからです。
@@ -158,7 +158,6 @@ manifestと実行ディレクトリを読んでプルリクエストのコメン
     [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
 ```
 
-> [!WARNING]
 > **モデルへの依頼には費用がかかり、指定したファイルがそのプロバイダーに
 > 送信されます。** ネットワーク呼び出しを行うのは`generate`、`triage`、
 > そして`--github-pr`で投稿を求められた`tremula comment`だけです。
@@ -195,13 +194,13 @@ manifestと実行ディレクトリを読んでプルリクエストのコメン
 
 現在の言語パックはPythonのみである。対象プロジェクトの環境内でCosmic Rayを
 駆動し、バックエンドの語彙を他のどの層が見る前にも中立なシグナルへ翻訳する
-([ADR-0001](docs/adr/0001-cosmic-ray-as-execution-backend.md))。
+([ADR-0001](https://github.com/jubilee-works/tremula/blob/main/docs/adr/0001-cosmic-ray-as-execution-backend.md))。
 
 次に書く予定のパックは`cargo-mutants`を用いるRustである。二番目の事例として
 有用なのは、実行モデルがCosmic Rayと異なるからだ — コンパイル言語であり、
 プロセス内に変異データベースを持たない。パックプロトコルが耐えるよう設計された
 圧力がまさにこれである
-([ADR-0002](docs/adr/0002-rust-core-with-language-packs.md))。まだ何も
+([ADR-0002](https://github.com/jubilee-works/tremula/blob/main/docs/adr/0002-rust-core-with-language-packs.md))。まだ何も
 実装されていない。
 
 その二つより先のパックは、このリポジトリの外から来ることを前提としている。
@@ -212,13 +211,13 @@ manifestと実行ディレクトリを読んでプルリクエストのコメン
 
 | やりたいこと | ガイド |
 | --- | --- |
-| 復旧まで含めて初回実行を完了する | [はじめてのミューテーションテスト](docs/guides/first-run.md) |
-| triage結果を理解しサバイバーをdismissする | [サバイバーの確認とdismiss](docs/guides/survivor-review.md) |
-| 同僚やコーディングエージェント向けに実行結果をパッケージ化する | [証拠バンドルの共有](docs/guides/bundle-sharing.md) |
-| プルリクエストに実行結果を報告する | [Comments](docs/01-architecture/comments.md) |
-| アーキテクチャ、コントラクト、決定記録 | [ドキュメント索引](docs/README.md) |
+| 復旧まで含めて初回実行を完了する | [はじめてのミューテーションテスト](https://github.com/jubilee-works/tremula/blob/main/docs/guides/first-run.md) |
+| triage結果を理解しサバイバーをdismissする | [サバイバーの確認とdismiss](https://github.com/jubilee-works/tremula/blob/main/docs/guides/survivor-review.md) |
+| 同僚やコーディングエージェント向けに実行結果をパッケージ化する | [証拠バンドルの共有](https://github.com/jubilee-works/tremula/blob/main/docs/guides/bundle-sharing.md) |
+| プルリクエストに実行結果を報告する | [Comments](https://github.com/jubilee-works/tremula/blob/main/docs/01-architecture/comments.md) |
+| アーキテクチャ、コントラクト、決定記録 | [ドキュメント索引](https://github.com/jubilee-works/tremula/blob/main/docs/README.md) |
 
-生成されたJSON Schemaと共有例は[`contracts/`](contracts/README.md)に
+生成されたJSON Schemaと共有例は[`contracts/`](https://github.com/jubilee-works/tremula/blob/main/contracts/README.md)に
 あります。リンク先のドキュメントは英語です。
 
 ## 開発
@@ -237,4 +236,6 @@ Rustのコントラクト型を変更したら`just contracts`を実行してく
 
 ## ライセンス
 
-MIT
+MIT。[LICENSE](https://github.com/jubilee-works/tremula/blob/main/LICENSE)を参照してください。
+
+Developed by [TimeTree](https://timetreeapp.com).

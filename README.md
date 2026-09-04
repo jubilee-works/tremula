@@ -1,6 +1,6 @@
 # tremula
 
-**English** | [한국어](README.ko.md) | [日本語](README.ja.md)
+**English** | [한국어](https://github.com/jubilee-works/tremula/blob/main/README.ko.md) | [日本語](https://github.com/jubilee-works/tremula/blob/main/README.ja.md)
 
 **Plant realistic bugs in your code — and see if your tests tremble.**
 
@@ -141,7 +141,7 @@ travels from there into the run directory and the evidence bundle untouched.
 `tremula comment` reads the manifest and the run directory and prints a pull
 request comment; `--github-pr <N>` posts it, replacing its own previous comment
 rather than adding to the thread. See
-[Comments](docs/01-architecture/comments.md).
+[Comments](https://github.com/jubilee-works/tremula/blob/main/docs/01-architecture/comments.md).
 
 A green run that produced no mutants is the one result worth annotating, because
 nothing about the exit code distinguishes it from a run that found nothing wrong.
@@ -156,7 +156,6 @@ one step, reading the manifest `generate` always writes:
     [ "$(jq '.selection.coverage' tremula-manifest.json)" != null ] || echo "::warning::tremula: selected without coverage — a mutant that survived may never be run at all"
 ```
 
-> [!WARNING]
 > **Asking a model costs money and sends the named files to its provider.**
 > Only `generate` and `triage` make network calls — and `tremula comment` when it
 > is asked to post one with `--github-pr`.
@@ -191,13 +190,13 @@ modified working tree.
 Python is the only language pack today. It drives Cosmic Ray inside the target
 project's environment and translates the backend's vocabulary into neutral
 signals before anything else sees it
-([ADR-0001](docs/adr/0001-cosmic-ray-as-execution-backend.md)).
+([ADR-0001](https://github.com/jubilee-works/tremula/blob/main/docs/adr/0001-cosmic-ray-as-execution-backend.md)).
 
 Rust, over `cargo-mutants`, is the pack we intend to write next. It is the
 useful second case because its execution model differs from Cosmic Ray's — a
 compiled language, no in-process mutation database — which is the pressure the
 pack protocol was designed to survive
-([ADR-0002](docs/adr/0002-rust-core-with-language-packs.md)). None of it is
+([ADR-0002](https://github.com/jubilee-works/tremula/blob/main/docs/adr/0002-rust-core-with-language-packs.md)). None of it is
 implemented.
 
 Packs past those two are expected to come from outside this repository. The
@@ -208,14 +207,14 @@ pack needs no change to the core.
 
 | Task | Guide |
 | --- | --- |
-| Set up and complete a first run, including recovery | [Run your first mutation test](docs/guides/first-run.md) |
-| Understand triage results and dismiss a survivor | [Review and dismiss survivors](docs/guides/survivor-review.md) |
-| Package a run for a colleague or a coding agent | [Share an evidence bundle](docs/guides/bundle-sharing.md) |
-| Report a run on a pull request | [Comments](docs/01-architecture/comments.md) |
-| Architecture, contracts, and decision records | [Documentation index](docs/README.md) |
+| Set up and complete a first run, including recovery | [Run your first mutation test](https://github.com/jubilee-works/tremula/blob/main/docs/guides/first-run.md) |
+| Understand triage results and dismiss a survivor | [Review and dismiss survivors](https://github.com/jubilee-works/tremula/blob/main/docs/guides/survivor-review.md) |
+| Package a run for a colleague or a coding agent | [Share an evidence bundle](https://github.com/jubilee-works/tremula/blob/main/docs/guides/bundle-sharing.md) |
+| Report a run on a pull request | [Comments](https://github.com/jubilee-works/tremula/blob/main/docs/01-architecture/comments.md) |
+| Architecture, contracts, and decision records | [Documentation index](https://github.com/jubilee-works/tremula/blob/main/docs/README.md) |
 
 Generated JSON Schemas and shared examples live in
-[`contracts/`](contracts/README.md). The linked documentation is in English.
+[`contracts/`](https://github.com/jubilee-works/tremula/blob/main/contracts/README.md). The linked documentation is in English.
 
 ## Development
 
@@ -233,4 +232,6 @@ the distributable wheel in `dist/`.
 
 ## License
 
-MIT
+MIT. See [LICENSE](https://github.com/jubilee-works/tremula/blob/main/LICENSE).
+
+Developed by [TimeTree](https://timetreeapp.com).
