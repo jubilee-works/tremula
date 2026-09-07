@@ -3,6 +3,10 @@ docs/superpowers/
 
 # Local tooling config — never committed
 .claude/
+.agents/
+.gjc/
+.omo/
+AGENTS.md
 
 # Rust
 target/
