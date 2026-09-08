@@ -7,9 +7,7 @@
 tremula runs externally defined mutants against your test suite and reports
 which ones survive: evidence of the gaps your tests don't cover.
 
-> [!NOTE]
-> Early development. The packages are not published yet, and interfaces may
-> change.
+> **Early release.** Interfaces may change before 1.0.
 
 ## Why tremula
 
@@ -28,9 +26,8 @@ which ones survive: evidence of the gaps your tests don't cover.
 
 ## Install
 
-tremula's canonical distribution is a pair of wheels: `tremula` carries the
-CLI, and the Python language pack comes along as its dependency. Where the
-wheels are available from an index, the install is one command:
+tremula ships as a pair of wheels on PyPI: `tremula` carries the CLI, and the
+Python language pack `tremula-python` comes along as its dependency:
 
 ```sh
 uv add --dev tremula
@@ -38,16 +35,17 @@ uv add --dev tremula
 ```
 
 tremula supports Python 3.10 or newer through the Python language pack and
-Cosmic Ray. Where no index carries the wheels, install from a clone of this
-repository into the project you want to measure:
+Cosmic Ray. Wheels are built for Linux x86_64 and macOS arm64. On any other
+platform, install from a clone of this repository into the project you want to
+measure — this builds the Rust core, so a Rust toolchain is required:
 
 ```sh
 uv add --dev --editable /path/to/tremula /path/to/tremula/packs/python
 uv run tremula --version
 ```
 
-This keeps the CLI and language pack in the same project environment as the
-test suite.
+Either way the CLI and language pack land in the same project environment as
+the test suite.
 
 A run drives the pack through the project's own Python. Pass `--python <path>`
 to name one; otherwise tremula uses the active virtual environment, then the

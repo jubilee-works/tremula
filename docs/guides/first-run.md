@@ -1,18 +1,26 @@
 # Run your first mutation test
 
-This guide takes a Python project from source installation to a completed run.
+This guide takes a Python project from installation to a completed run.
 For the shortest version, use the root [README](../../README.md).
 
 ## Before you start
 
 tremula currently supports Python 3.10 or newer through the Python language
-pack. Neither package is published to PyPI yet.
+pack. Both packages are on PyPI; wheels are built for Linux x86_64 and macOS
+arm64.
 
 Install the core and the pack into the project you want to test:
 
 ```sh
-uv add --dev --editable /path/to/tremula /path/to/tremula/packs/python
+uv add --dev tremula
 uv run tremula --version
+```
+
+On a platform without a prebuilt wheel, install from a clone instead. This
+builds the Rust core, so a Rust toolchain is required:
+
+```sh
+uv add --dev --editable /path/to/tremula /path/to/tremula/packs/python
 ```
 
 Add tremula's working paths to the project's `.gitignore`:

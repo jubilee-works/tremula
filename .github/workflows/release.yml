@@ -62,16 +62,42 @@ jobs:
           path: dist/*.whl
           if-no-files-found: error
 
-  publish:
-    # Publishing to PyPI is switched off in this file, on purpose. tremula is not
-    # approved for public release yet, so nothing here may run - not on a tag, not
-    # with the repository variable set, not with an approved environment.
-    #
-    # The `false &&` below is that switch. To publish, in this order: delete
-    # `false && ` from the line under this comment, create the `pypi` environment
-    # with a required reviewer, then set PYPI_PUBLISH_ENABLED=true.
-    if: false && startsWith(github.ref, 'refs/tags/') && vars.PYPI_PUBLISH_ENABLED == 'true'
+  # The two packages publish from two jobs with two environments, because a PyPI
+  # pending publisher must be unique on (owner, repository, workflow, environment)
+  # and this repository bootstraps two project names from one workflow. The pack
+  # goes first: `tremula` depends on `tremula-python==0.1.*`, so the dependency has
+  # to exist on the index before the CLI that requires it does.
+  publish-pack:
+    # Runs only for a tag, only while the repository variable PYPI_PUBLISH_ENABLED
+    # is 'true', and only after a required reviewer approves the `pypi-pack`
+    # environment. Uploads tremula-python through PyPI Trusted Publishing; no API
+    # token is stored.
+    if: startsWith(github.ref, 'refs/tags/') && vars.PYPI_PUBLISH_ENABLED == 'true'
     needs: wheels
+    runs-on: ubuntu-latest
+    environment: pypi-pack
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          pattern: wheels-*
+          merge-multiple: true
+      - name: Keep only the language pack wheel
+        run: |
+          mkdir upload
+          mv dist/tremula_python-*.whl upload/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: upload
+
+  publish:
+    # Same gate as publish-pack, against the `pypi` environment, and only after the
+    # pack it depends on is already on the index. Uploads every tremula wheel the
+    # `wheels` job produced (Linux x86_64 and macOS arm64).
+    if: startsWith(github.ref, 'refs/tags/') && vars.PYPI_PUBLISH_ENABLED == 'true'
+    needs: [wheels, publish-pack]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -82,9 +108,13 @@ jobs:
           path: dist
           pattern: wheels-*
           merge-multiple: true
+      - name: Keep only the tremula wheels
+        run: |
+          mkdir upload
+          mv dist/tremula-*.whl upload/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
-          packages-dir: dist
+          packages-dir: upload
 
   release-assets:
     if: startsWith(github.ref, 'refs/tags/')

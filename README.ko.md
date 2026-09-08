@@ -8,9 +8,7 @@ tremula는 외부에서 정의된 뮤턴트를 테스트 스위트에 대해 실
 뮤턴트가 살아남는지 보고합니다. 살아남은 뮤턴트는 테스트가 커버하지 못하는
 빈틈의 증거입니다.
 
-> [!NOTE]
-> 초기 개발 단계입니다. 패키지는 아직 배포되지 않았으며 인터페이스가 바뀔 수
-> 있습니다.
+> **초기 릴리스입니다.** 1.0 이전에는 인터페이스가 바뀔 수 있습니다.
 
 ## 왜 tremula인가
 
@@ -29,9 +27,8 @@ tremula는 외부에서 정의된 뮤턴트를 테스트 스위트에 대해 실
 
 ## 설치
 
-tremula의 정식 배포 형태는 두 개의 wheel입니다. `tremula`가 CLI를 담고,
-Python 언어 팩은 그 의존성으로 함께 설치됩니다. wheel을 제공하는 인덱스가
-있는 환경에서는 설치가 명령 하나로 끝납니다:
+tremula는 PyPI에 두 개의 wheel로 배포됩니다. `tremula`가 CLI를 담고, Python
+언어 팩 `tremula-python`은 그 의존성으로 함께 설치됩니다:
 
 ```sh
 uv add --dev tremula
@@ -39,15 +36,16 @@ uv add --dev tremula
 ```
 
 tremula는 Python 언어 팩과 Cosmic Ray를 통해 Python 3.10 이상을 지원합니다.
-wheel을 제공하는 인덱스가 없는 환경에서는, 이 저장소를 클론해 측정하려는
-프로젝트에 설치하세요:
+wheel은 Linux x86_64와 macOS arm64용으로 빌드됩니다. 그 외 플랫폼에서는 이
+저장소를 클론해 측정하려는 프로젝트에 설치하세요. Rust 코어를 빌드하므로
+Rust 툴체인이 필요합니다:
 
 ```sh
 uv add --dev --editable /path/to/tremula /path/to/tremula/packs/python
 uv run tremula --version
 ```
 
-이렇게 하면 CLI와 언어 팩이 테스트 스위트와 같은 프로젝트 환경에 놓입니다.
+어느 쪽이든 CLI와 언어 팩이 테스트 스위트와 같은 프로젝트 환경에 놓입니다.
 
 실행은 프로젝트의 Python으로 언어 팩을 구동합니다. `--python <경로>`로
 인터프리터를 지정할 수 있고, 지정하지 않으면 활성화된 가상환경, 그다음
